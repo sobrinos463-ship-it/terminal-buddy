@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Bolt, ChevronRight } from "lucide-react";
+import { Zap, ChevronRight } from "lucide-react";
 import { MobileFrame } from "@/components/layout/MobileFrame";
 
 export default function SplashScreen() {
@@ -45,7 +45,7 @@ export default function SplashScreen() {
               className="relative"
             >
               <div className="w-24 h-24 mb-6 rounded-2xl bg-primary flex items-center justify-center animate-pulse-glow">
-                <Bolt className="w-12 h-12 text-primary-foreground" />
+                <Zap className="w-12 h-12 text-primary-foreground fill-primary-foreground" />
               </div>
             </motion.div>
             <motion.p
@@ -77,7 +77,7 @@ export default function SplashScreen() {
             >
               <div className="glass-card px-4 py-2 flex items-center gap-2">
                 <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center animate-pulse-glow">
-                  <Bolt className="w-4 h-4 text-primary-foreground" />
+                  <Zap className="w-4 h-4 text-primary-foreground fill-primary-foreground" />
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">Powered by</p>
