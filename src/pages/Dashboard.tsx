@@ -26,6 +26,11 @@ interface Routine {
   routine_exercises: { id: string }[];
 }
 
+interface WeeklySession {
+  completed_at: string;
+  duration_seconds: number;
+}
+
 const quickActions = [
   { icon: Play, label: "Iniciar Entreno", color: "bg-primary", path: "/training" },
   { icon: Calendar, label: "Mi Plan", color: "bg-secondary", path: "/chat" },
@@ -40,6 +45,8 @@ export default function Dashboard() {
   const [isLoading, setIsLoading] = useState(true);
   const [generatingRoutine, setGeneratingRoutine] = useState(false);
   const [lastSessionDays, setLastSessionDays] = useState<number | null>(null);
+  const [weekSessions, setWeekSessions] = useState<WeeklySession[]>([]);
+  const [totalSessions, setTotalSessions] = useState(0);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -76,21 +83,34 @@ export default function Dashboard() {
         setRoutine(routines[0]);
       }
 
-      // Fetch last session to calculate days since last workout
+      // Fetch sessions for the week
+      const weekAgo = new Date();
+      weekAgo.setDate(weekAgo.getDate() - 7);
+      
       const { data: sessions } = await supabase
         .from("workout_sessions")
-        .select("completed_at")
+        .select("completed_at, duration_seconds")
         .eq("user_id", user.id)
         .not("completed_at", "is", null)
-        .order("completed_at", { ascending: false })
-        .limit(1);
+        .gte("completed_at", weekAgo.toISOString())
+        .order("completed_at", { ascending: false });
 
-      if (sessions && sessions[0]?.completed_at) {
+      if (sessions && sessions.length > 0) {
+        setWeekSessions(sessions);
         const lastDate = new Date(sessions[0].completed_at);
         const today = new Date();
         const diffDays = Math.floor((today.getTime() - lastDate.getTime()) / (1000 * 60 * 60 * 24));
         setLastSessionDays(diffDays);
       }
+
+      // Get total sessions count for progress
+      const { count } = await supabase
+        .from("workout_sessions")
+        .select("*", { count: "exact", head: true })
+        .eq("user_id", user.id)
+        .not("completed_at", "is", null);
+      
+      setTotalSessions(count || 0);
 
       setIsLoading(false);
     };
@@ -251,8 +271,8 @@ export default function Dashboard() {
           </GlassCard>
           <GlassCard className="text-center">
             <TrendingUp className="w-6 h-6 text-primary mx-auto mb-2" />
-            <p className="text-2xl font-bold">+8%</p>
-            <p className="text-xs text-muted-foreground">Fuerza</p>
+            <p className="text-2xl font-bold">{totalSessions}</p>
+            <p className="text-xs text-muted-foreground">Entrenos</p>
           </GlassCard>
         </motion.div>
 
@@ -361,9 +381,22 @@ export default function Dashboard() {
                 const today = new Date().getDay();
                 const dayIndex = today === 0 ? 6 : today - 1;
                 const isToday = i === dayIndex;
-                const isPast = i < dayIndex;
-                const heights = isPast ? [60, 80, 40, 100, 70, 50, 0].slice(0, i + 1) : [];
-                const height = isPast ? heights[i] || 0 : isToday ? 80 : 0;
+                
+                // Calculate which date this day represents
+                const dayOffset = i - dayIndex;
+                const targetDate = new Date();
+                targetDate.setDate(targetDate.getDate() + dayOffset);
+                const targetDateStr = targetDate.toISOString().split('T')[0];
+                
+                // Check if there's a session on this day
+                const sessionOnDay = weekSessions.find(s => 
+                  s.completed_at.split('T')[0] === targetDateStr
+                );
+                
+                // Calculate height based on duration (max 60 min = 100%)
+                const height = sessionOnDay 
+                  ? Math.min(100, Math.round((sessionOnDay.duration_seconds / 3600) * 100))
+                  : 0;
                 
                 return (
                   <div key={day} className="flex flex-col items-center gap-2">
