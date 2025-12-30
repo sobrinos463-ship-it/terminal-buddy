@@ -66,19 +66,33 @@ export default function Onboarding() {
   const [questionIndex, setQuestionIndex] = useState(0);
 
   const saveProfile = async (data: OnboardingData) => {
-    if (!user) return;
+    if (!user) {
+      console.error("No user found for saving profile");
+      return;
+    }
     
+    console.log("Saving profile with data:", data);
     setIsSaving(true);
     try {
-      const { error } = await supabase
+      const updateData = {
+        goal: data.goal,
+        experience_level: data.experience_level,
+      };
+      console.log("Update payload:", updateData, "User ID:", user.id);
+      
+      const { data: updatedProfile, error } = await supabase
         .from("profiles")
-        .update({
-          goal: data.goal,
-          experience_level: data.experience_level,
-        })
-        .eq("user_id", user.id);
+        .update(updateData)
+        .eq("user_id", user.id)
+        .select()
+        .single();
 
-      if (error) throw error;
+      if (error) {
+        console.error("Supabase error:", error);
+        throw error;
+      }
+
+      console.log("Profile updated successfully:", updatedProfile);
 
       toast({
         title: "¡Perfil guardado!",
@@ -109,7 +123,7 @@ export default function Onboarding() {
     // Update onboarding data based on question index
     const newData = { ...onboardingData };
     if (questionIndex === 0) {
-      newData.goal = goalMap[option] || option.toLowerCase();
+      newData.goal = goalMap[option] || option.toLowerCase().replace(/\s+/g, '_');
     } else if (questionIndex === 1) {
       newData.training_days = option;
     } else if (questionIndex === 2) {
@@ -117,6 +131,7 @@ export default function Onboarding() {
     }
     setOnboardingData(newData);
     setQuestionIndex(questionIndex + 1);
+    console.log("Onboarding data updated:", newData, "Question:", questionIndex + 1);
     setProgress(Math.min(progress + 25, 100));
 
     setTimeout(() => {
