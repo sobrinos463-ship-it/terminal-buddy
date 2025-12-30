@@ -1,12 +1,13 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Bell, Play, Flame, Trophy, TrendingUp, Calendar, Sparkles, Loader2 } from "lucide-react";
+import { Bell, Play, Flame, Trophy, TrendingUp, Calendar, Sparkles, Loader2, RefreshCw } from "lucide-react";
 import { MobileFrame, MobileContent } from "@/components/layout/MobileFrame";
 import { BottomNav } from "@/components/layout/BottomNav";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 
 interface Profile {
   full_name: string | null;
@@ -16,45 +17,96 @@ interface Profile {
   goal: string | null;
 }
 
+interface Routine {
+  id: string;
+  name: string;
+  description: string | null;
+  target_muscle_groups: string[];
+  estimated_duration_minutes: number;
+  routine_exercises: { id: string }[];
+}
+
 const quickActions = [
   { icon: Play, label: "Iniciar Entreno", color: "bg-primary", path: "/training" },
   { icon: Calendar, label: "Mi Plan", color: "bg-secondary", path: "/chat" },
   { icon: TrendingUp, label: "Progreso", color: "bg-accent", path: "/summary" },
 ];
 
-const todayWorkout = {
-  title: "Pecho & Tríceps",
-  duration: "45 min",
-  exercises: 6,
-  intensity: "Alta",
-};
-
 export default function Dashboard() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [routine, setRoutine] = useState<Routine | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [generatingRoutine, setGeneratingRoutine] = useState(false);
 
   useEffect(() => {
-    const fetchProfile = async () => {
+    const fetchData = async () => {
       if (!user) return;
       
-      const { data, error } = await supabase
+      // Fetch profile
+      const { data: profileData, error: profileError } = await supabase
         .from("profiles")
         .select("*")
         .eq("user_id", user.id)
         .maybeSingle();
       
-      if (error) {
-        console.error("Error fetching profile:", error);
-      } else if (data) {
-        setProfile(data);
+      if (profileError) {
+        console.error("Error fetching profile:", profileError);
+      } else if (profileData) {
+        setProfile(profileData);
       }
+
+      // Fetch active routine
+      const { data: routines, error: routineError } = await supabase
+        .from("workout_routines")
+        .select(`
+          *,
+          routine_exercises (id)
+        `)
+        .eq("user_id", user.id)
+        .eq("is_active", true)
+        .order("created_at", { ascending: false })
+        .limit(1);
+
+      if (routineError) {
+        console.error("Error fetching routine:", routineError);
+      } else if (routines && routines.length > 0) {
+        setRoutine(routines[0]);
+      }
+
       setIsLoading(false);
     };
 
-    fetchProfile();
+    fetchData();
   }, [user]);
+
+  const handleGenerateRoutine = async () => {
+    if (!user) return;
+    
+    setGeneratingRoutine(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error("No session");
+
+      const { data, error } = await supabase.functions.invoke('generate-workout', {
+        headers: {
+          Authorization: `Bearer ${session.access_token}`
+        }
+      });
+
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+
+      setRoutine(data.routine);
+      toast.success('¡Rutina generada!');
+    } catch (err) {
+      console.error('Error generating routine:', err);
+      toast.error('Error al generar la rutina');
+    } finally {
+      setGeneratingRoutine(false);
+    }
+  };
 
   const displayName = profile?.full_name || user?.email?.split("@")[0] || "Usuario";
   const firstName = displayName.split(" ")[0];
@@ -169,29 +221,63 @@ export default function Dashboard() {
         >
           <div className="flex items-center justify-between mb-3">
             <h2 className="font-bold text-lg">Entreno de Hoy</h2>
-            <span className="text-xs text-muted-foreground">Ver todos</span>
-          </div>
-          <GlassCard
-            variant="elevated"
-            className="cursor-pointer hover:border-primary/50 transition-all"
-            onClick={() => navigate("/training")}
-          >
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h3 className="font-bold text-lg">{todayWorkout.title}</h3>
-                <p className="text-sm text-muted-foreground">
-                  {todayWorkout.exercises} ejercicios • {todayWorkout.duration}
-                </p>
-              </div>
-              <div className="px-3 py-1 bg-primary/20 text-primary rounded-full text-xs font-semibold">
-                {todayWorkout.intensity}
-              </div>
-            </div>
-            <button className="w-full bg-primary text-primary-foreground font-bold py-3 rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-primary/30 hover:shadow-primary/50 transition-all">
-              <Play className="w-5 h-5" />
-              Comenzar Sesión
+            <button 
+              onClick={handleGenerateRoutine}
+              disabled={generatingRoutine}
+              className="text-xs text-primary font-semibold flex items-center gap-1"
+            >
+              {generatingRoutine ? (
+                <Loader2 className="w-3 h-3 animate-spin" />
+              ) : (
+                <RefreshCw className="w-3 h-3" />
+              )}
+              Nueva rutina
             </button>
-          </GlassCard>
+          </div>
+          {routine ? (
+            <GlassCard
+              variant="elevated"
+              className="cursor-pointer hover:border-primary/50 transition-all"
+              onClick={() => navigate("/training")}
+            >
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h3 className="font-bold text-lg">{routine.name}</h3>
+                  <p className="text-sm text-muted-foreground">
+                    {routine.routine_exercises?.length || 0} ejercicios • {routine.estimated_duration_minutes} min
+                  </p>
+                </div>
+                <div className="px-3 py-1 bg-primary/20 text-primary rounded-full text-xs font-semibold">
+                  {routine.target_muscle_groups?.[0] || 'Mixto'}
+                </div>
+              </div>
+              <button className="w-full bg-primary text-primary-foreground font-bold py-3 rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-primary/30 hover:shadow-primary/50 transition-all">
+                <Play className="w-5 h-5" />
+                Comenzar Sesión
+              </button>
+            </GlassCard>
+          ) : (
+            <GlassCard variant="elevated" className="text-center">
+              <p className="text-muted-foreground mb-4">No tienes rutina activa</p>
+              <button
+                onClick={handleGenerateRoutine}
+                disabled={generatingRoutine}
+                className="w-full bg-primary text-primary-foreground font-bold py-3 rounded-xl flex items-center justify-center gap-2"
+              >
+                {generatingRoutine ? (
+                  <>
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    Generando...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-5 h-5" />
+                    Generar Rutina con IA
+                  </>
+                )}
+              </button>
+            </GlassCard>
+          )}
         </motion.div>
 
         {/* Quick Actions */}
