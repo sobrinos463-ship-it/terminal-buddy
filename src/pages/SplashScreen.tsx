@@ -1,21 +1,42 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Zap, ChevronRight } from "lucide-react";
+import { Zap, ChevronRight, Loader2 } from "lucide-react";
 import { MobileFrame } from "@/components/layout/MobileFrame";
+import { useAuth } from "@/hooks/useAuth";
 
 export default function SplashScreen() {
   const navigate = useNavigate();
+  const { user, loading } = useAuth();
   const [showSplash, setShowSplash] = useState(true);
   const [showContent, setShowContent] = useState(false);
 
   useEffect(() => {
     const timer = setTimeout(() => {
       setShowSplash(false);
-      setShowContent(true);
-    }, 2500);
+      // If user is logged in, redirect to dashboard
+      if (!loading && user) {
+        navigate("/dashboard");
+      } else {
+        setShowContent(true);
+      }
+    }, 2000);
     return () => clearTimeout(timer);
-  }, []);
+  }, [user, loading, navigate]);
+
+  // If still loading auth, keep showing splash
+  if (loading) {
+    return (
+      <MobileFrame>
+        <div className="flex-1 flex flex-col items-center justify-center bg-background">
+          <div className="w-24 h-24 mb-6 rounded-2xl bg-primary flex items-center justify-center animate-pulse-glow">
+            <Zap className="w-12 h-12 text-primary-foreground fill-primary-foreground" />
+          </div>
+          <Loader2 className="w-6 h-6 animate-spin text-primary" />
+        </div>
+      </MobileFrame>
+    );
+  }
 
   return (
     <MobileFrame>
@@ -109,7 +130,7 @@ export default function SplashScreen() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.6 }}
-              onClick={() => navigate("/onboarding")}
+              onClick={() => navigate("/auth")}
               className="w-full bg-primary text-primary-foreground font-bold py-4 px-6 rounded-2xl flex items-center justify-center gap-2 shadow-lg shadow-primary/30 hover:shadow-primary/50 transition-all active:scale-[0.98]"
             >
               Comenzar mi Transformación
@@ -121,7 +142,7 @@ export default function SplashScreen() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ delay: 0.8 }}
-              onClick={() => navigate("/dashboard")}
+              onClick={() => navigate("/auth")}
               className="mt-4 text-center text-sm text-muted-foreground hover:text-foreground transition-colors"
             >
               Ya tengo una cuenta

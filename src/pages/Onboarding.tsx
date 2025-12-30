@@ -1,8 +1,11 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { ChevronLeft, Send } from "lucide-react";
+import { ChevronLeft, Send, Loader2 } from "lucide-react";
 import { MobileFrame, MobileContent } from "@/components/layout/MobileFrame";
+import { useAuth } from "@/hooks/useAuth";
+import { supabase } from "@/integrations/supabase/client";
+import { useToast } from "@/hooks/use-toast";
 
 interface Message {
   id: number;
@@ -11,32 +14,88 @@ interface Message {
   options?: string[];
 }
 
+interface OnboardingData {
+  goal: string | null;
+  experience_level: string | null;
+  training_days: string | null;
+}
+
+const goalMap: Record<string, string> = {
+  "Perder grasa": "lose_fat",
+  "Ganar músculo": "build_muscle",
+  "Mejorar resistencia": "endurance",
+  "Mantenerme activo": "maintain",
+  "Ganar fuerza": "strength",
+};
+
+const levelMap: Record<string, string> = {
+  "Principiante": "beginner",
+  "Intermedio": "intermediate",
+  "Avanzado": "advanced",
+  "Elite": "elite",
+};
+
 const initialMessages: Message[] = [
   {
     id: 1,
     type: "ai",
-    content:
-      "¡Hola! 👋 Soy tu Coach de IA. Vamos a conocernos un poco para crear el plan perfecto para ti.",
+    content: "¡Qué pasa, máquina! 💪 Soy tu Coach IA. Vamos a conocernos para crear el plan perfecto para ti.",
   },
   {
     id: 2,
     type: "ai",
     content: "¿Cuál es tu objetivo principal?",
-    options: [
-      "Perder grasa",
-      "Ganar músculo",
-      "Mejorar resistencia",
-      "Mantenerme activo",
-    ],
+    options: ["Perder grasa", "Ganar músculo", "Ganar fuerza", "Mejorar resistencia"],
   },
 ];
 
 export default function Onboarding() {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const { toast } = useToast();
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [progress, setProgress] = useState(25);
   const [inputValue, setInputValue] = useState("");
   const [isTyping, setIsTyping] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [onboardingData, setOnboardingData] = useState<OnboardingData>({
+    goal: null,
+    experience_level: null,
+    training_days: null,
+  });
+  const [questionIndex, setQuestionIndex] = useState(0);
+
+  const saveProfile = async (data: OnboardingData) => {
+    if (!user) return;
+    
+    setIsSaving(true);
+    try {
+      const { error } = await supabase
+        .from("profiles")
+        .update({
+          goal: data.goal,
+          experience_level: data.experience_level,
+        })
+        .eq("user_id", user.id);
+
+      if (error) throw error;
+
+      toast({
+        title: "¡Perfil guardado!",
+        description: "Tu plan personalizado está listo.",
+      });
+      navigate("/plan-generation");
+    } catch (error) {
+      console.error("Error saving profile:", error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "No se pudo guardar tu perfil.",
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   const handleOptionSelect = (option: string) => {
     const userMessage: Message = {
@@ -46,43 +105,60 @@ export default function Onboarding() {
     };
     setMessages([...messages, userMessage]);
     setIsTyping(true);
+
+    // Update onboarding data based on question index
+    const newData = { ...onboardingData };
+    if (questionIndex === 0) {
+      newData.goal = goalMap[option] || option.toLowerCase();
+    } else if (questionIndex === 1) {
+      newData.training_days = option;
+    } else if (questionIndex === 2) {
+      newData.experience_level = levelMap[option] || "beginner";
+    }
+    setOnboardingData(newData);
+    setQuestionIndex(questionIndex + 1);
     setProgress(Math.min(progress + 25, 100));
 
     setTimeout(() => {
       setIsTyping(false);
-      const nextQuestion = getNextQuestion(messages.length);
+      const nextQuestion = getNextQuestion(questionIndex + 1, newData);
       if (nextQuestion) {
         setMessages((prev) => [...prev, nextQuestion]);
-      } else {
-        navigate("/plan-generation");
       }
-    }, 1500);
+    }, 1200);
   };
 
-  const getNextQuestion = (msgCount: number): Message | null => {
+  const getNextQuestion = (index: number, data: OnboardingData): Message | null => {
     const questions: Message[] = [
       {
-        id: msgCount + 2,
+        id: messages.length + 2,
         type: "ai",
-        content: "Excelente elección. ¿Cuántos días a la semana puedes entrenar?",
+        content: "Perfecto. ¿Cuántos días a la semana puedes entrenar?",
         options: ["2-3 días", "4-5 días", "6+ días"],
       },
       {
-        id: msgCount + 2,
+        id: messages.length + 2,
         type: "ai",
         content: "¿Cuál es tu nivel de experiencia en el gimnasio?",
         options: ["Principiante", "Intermedio", "Avanzado"],
       },
       {
-        id: msgCount + 2,
+        id: messages.length + 2,
         type: "ai",
-        content:
-          "¡Perfecto! Ya tengo toda la información que necesito. Voy a crear tu plan personalizado ahora mismo. 🚀",
+        content: "¡Brutal! Ya tengo todo lo que necesito. Voy a crear tu plan personalizado ahora mismo. 🔥",
       },
     ];
 
-    const index = Math.floor((msgCount - 2) / 2);
-    return index < questions.length ? questions[index] : null;
+    if (index < questions.length) {
+      return questions[index];
+    } else if (index === questions.length) {
+      // Save and navigate after showing final message
+      setTimeout(() => {
+        saveProfile(data);
+      }, 2000);
+      return questions[2];
+    }
+    return null;
   };
 
   const handleSend = () => {
@@ -96,7 +172,7 @@ export default function Onboarding() {
       {/* Header */}
       <header className="glass-panel sticky top-0 z-20 p-4 flex items-center gap-4 border-b border-white/10">
         <button
-          onClick={() => navigate("/")}
+          onClick={() => navigate("/auth")}
           className="text-muted-foreground hover:text-foreground transition-colors"
         >
           <ChevronLeft className="w-6 h-6" />
@@ -104,7 +180,7 @@ export default function Onboarding() {
         <div className="flex-1">
           <div className="flex justify-between items-center mb-1">
             <span className="text-xs font-semibold text-secondary uppercase tracking-wider">
-              Entrevista Inicial
+              Configuración Inicial
             </span>
             <span className="text-xs text-muted-foreground">{progress}%</span>
           </div>
@@ -144,7 +220,7 @@ export default function Onboarding() {
                 </div>
 
                 {/* Options */}
-                {message.options && (
+                {message.options && !isSaving && (
                   <div className="mt-3 flex flex-wrap gap-2">
                     {message.options.map((option) => (
                       <motion.button
@@ -166,7 +242,7 @@ export default function Onboarding() {
 
         {/* Typing Indicator */}
         <AnimatePresence>
-          {isTyping && (
+          {(isTyping || isSaving) && (
             <motion.div
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
@@ -200,13 +276,19 @@ export default function Onboarding() {
             onChange={(e) => setInputValue(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleSend()}
             placeholder="Escribe tu respuesta..."
-            className="flex-1 bg-muted/50 border border-white/10 rounded-xl px-4 py-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-secondary/50"
+            disabled={isSaving}
+            className="flex-1 bg-muted/50 border border-white/10 rounded-xl px-4 py-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-secondary/50 disabled:opacity-50"
           />
           <button
             onClick={handleSend}
-            className="w-12 h-12 bg-secondary rounded-xl flex items-center justify-center text-secondary-foreground hover:bg-secondary/80 transition-colors"
+            disabled={isSaving}
+            className="w-12 h-12 bg-secondary rounded-xl flex items-center justify-center text-secondary-foreground hover:bg-secondary/80 transition-colors disabled:opacity-50"
           >
-            <Send className="w-5 h-5" />
+            {isSaving ? (
+              <Loader2 className="w-5 h-5 animate-spin" />
+            ) : (
+              <Send className="w-5 h-5" />
+            )}
           </button>
         </div>
       </div>
