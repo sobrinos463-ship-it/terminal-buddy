@@ -164,15 +164,30 @@ export default function Onboarding() {
       },
     ];
 
+    // If we still have questions to show
     if (index < questions.length) {
       return questions[index];
-    } else if (index === questions.length) {
-      // Save and navigate after showing final message
-      setTimeout(() => {
-        saveProfile(data);
-      }, 2000);
-      return questions[2];
     }
+    
+    // All questions answered - show final message and save
+    if (index === questions.length) {
+      console.log("All questions answered, saving profile with data:", data);
+      // Save profile after showing the final message
+      setTimeout(() => {
+        if (data.goal && data.experience_level) {
+          saveProfile(data);
+        } else {
+          console.error("Missing goal or experience_level in data:", data);
+          toast({
+            variant: "destructive",
+            title: "Error",
+            description: "Faltan datos. Por favor, vuelve a intentarlo.",
+          });
+        }
+      }, 2000);
+      return questions[2]; // Show final message
+    }
+    
     return null;
   };
 
