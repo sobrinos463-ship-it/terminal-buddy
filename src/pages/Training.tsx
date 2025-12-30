@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -11,6 +11,11 @@ import {
   TrendingUp,
   Loader2,
   RefreshCw,
+  Minus,
+  Plus,
+  Volume2,
+  VolumeX,
+  Dumbbell,
 } from "lucide-react";
 import { MobileFrame, MobileContent } from "@/components/layout/MobileFrame";
 import { GlassCard } from "@/components/ui/GlassCard";
@@ -46,6 +51,36 @@ interface WorkoutSession {
   started_at: string;
 }
 
+// Coach motivation phrases
+const COACH_PHRASES = {
+  setComplete: [
+    "Bien. Siguiente.",
+    "Eso es. Vamos.",
+    "Dale. Otro más.",
+    "Bien hecho.",
+  ],
+  exerciseComplete: [
+    "Ejercicio completado. Al siguiente.",
+    "Hecho. Ahora a por el siguiente.",
+    "Bien. Cambiamos.",
+  ],
+  restStart: [
+    "Descansa. Lo necesitas.",
+    "Recupera. Vuelves fuerte.",
+    "Respira. Siguiente set en nada.",
+  ],
+  restEnd: [
+    "Vamos. A darle.",
+    "Se acabó el descanso. Dale.",
+    "Arriba. Siguiente set.",
+  ],
+  midWorkout: [
+    "Vas bien. Sigue así.",
+    "Mitad del entreno. No aflojes.",
+    "Buen ritmo. Mantén.",
+  ],
+};
+
 export default function Training() {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -59,6 +94,11 @@ export default function Training() {
   const [restTimer, setRestTimer] = useState<number | null>(null);
   const [completedExercises, setCompletedExercises] = useState<Set<number>>(new Set());
   const [generatingNew, setGeneratingNew] = useState(false);
+  const [currentWeight, setCurrentWeight] = useState<string>("0");
+  const [coachEnabled, setCoachEnabled] = useState(true);
+  const [isCoachSpeaking, setIsCoachSpeaking] = useState(false);
+  const lastSpokenRef = useRef<string>("");
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   // Fetch active routine
   useEffect(() => {
@@ -110,6 +150,62 @@ export default function Training() {
     fetchRoutine();
   }, [user]);
 
+  // Update current weight when exercise changes
+  useEffect(() => {
+    if (routine?.routine_exercises[currentExerciseIndex]) {
+      const weight = routine.routine_exercises[currentExerciseIndex].weight_suggestion || "0";
+      setCurrentWeight(weight.replace(/[^0-9.]/g, "") || "0");
+    }
+  }, [currentExerciseIndex, routine]);
+
+  // Coach speak function
+  const speakCoach = useCallback(async (text: string) => {
+    if (!coachEnabled || isCoachSpeaking) return;
+    if (lastSpokenRef.current === text) return;
+    
+    lastSpokenRef.current = text;
+    setIsCoachSpeaking(true);
+    
+    try {
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/tts-coach`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+            Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+          },
+          body: JSON.stringify({ text }),
+        }
+      );
+
+      if (!response.ok) return;
+
+      const audioBlob = await response.blob();
+      const audioUrl = URL.createObjectURL(audioBlob);
+      
+      const audio = new Audio(audioUrl);
+      audioRef.current = audio;
+      
+      audio.onended = () => {
+        setIsCoachSpeaking(false);
+        URL.revokeObjectURL(audioUrl);
+      };
+      
+      audio.onerror = () => setIsCoachSpeaking(false);
+      await audio.play();
+    } catch {
+      setIsCoachSpeaking(false);
+    }
+  }, [coachEnabled, isCoachSpeaking]);
+
+  // Random phrase picker
+  const getRandomPhrase = (category: keyof typeof COACH_PHRASES) => {
+    const phrases = COACH_PHRASES[category];
+    return phrases[Math.floor(Math.random() * phrases.length)];
+  };
+
   // Main timer
   useEffect(() => {
     let interval: NodeJS.Timeout;
@@ -121,7 +217,7 @@ export default function Training() {
     return () => clearInterval(interval);
   }, [isRunning, restTimer]);
 
-  // Rest timer
+  // Rest timer with coach
   useEffect(() => {
     let interval: NodeJS.Timeout;
     if (restTimer !== null && restTimer > 0) {
@@ -129,10 +225,18 @@ export default function Training() {
         setRestTimer((prev) => (prev !== null ? prev - 1 : null));
       }, 1000);
     } else if (restTimer === 0) {
+      speakCoach(getRandomPhrase("restEnd"));
       setRestTimer(null);
     }
     return () => clearInterval(interval);
-  }, [restTimer]);
+  }, [restTimer, speakCoach]);
+
+  // Mid-workout motivation
+  useEffect(() => {
+    if (totalExercises > 0 && currentExerciseIndex === Math.floor(totalExercises / 2) && currentSet === 1) {
+      speakCoach(getRandomPhrase("midWorkout"));
+    }
+  }, [currentExerciseIndex, currentSet, speakCoach]);
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -143,22 +247,30 @@ export default function Training() {
   const currentExercise = routine?.routine_exercises[currentExerciseIndex];
   const totalExercises = routine?.routine_exercises.length || 0;
 
+  const adjustWeight = (delta: number) => {
+    const current = parseFloat(currentWeight) || 0;
+    const newWeight = Math.max(0, current + delta);
+    setCurrentWeight(newWeight.toString());
+  };
+
   const handleCompleteSet = async () => {
     if (!currentExercise || !session) return;
 
-    // Log completed set
+    // Log completed set with actual weight used
     await supabase.from('completed_sets').insert({
       session_id: session.id,
       exercise_name: currentExercise.name,
       set_number: currentSet,
-      weight_used: currentExercise.weight_suggestion
+      weight_used: currentWeight + " kg"
     });
 
     if (currentSet < currentExercise.sets) {
+      speakCoach(getRandomPhrase("setComplete"));
       setCurrentSet(currentSet + 1);
       setRestTimer(currentExercise.rest_seconds);
     } else {
       // Exercise completed
+      speakCoach(getRandomPhrase("exerciseComplete"));
       setCompletedExercises(prev => new Set(prev).add(currentExerciseIndex));
       
       if (currentExerciseIndex < totalExercises - 1) {
@@ -330,21 +442,46 @@ export default function Training() {
               {formatTime(timer)}
             </span>
           </div>
-          <button
-            onClick={handleFinishWorkout}
-            className="px-3 py-1 bg-destructive/10 text-destructive border border-destructive/20 rounded-lg text-sm font-bold"
-          >
-            FINALIZAR
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                setCoachEnabled(!coachEnabled);
+                if (audioRef.current) {
+                  audioRef.current.pause();
+                  audioRef.current = null;
+                }
+              }}
+              className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors ${
+                coachEnabled ? "bg-secondary/20 text-secondary" : "bg-muted text-muted-foreground"
+              }`}
+            >
+              {coachEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+            </button>
+            <button
+              onClick={handleFinishWorkout}
+              className="px-3 py-1 bg-destructive/10 text-destructive border border-destructive/20 rounded-lg text-sm font-bold"
+            >
+              FIN
+            </button>
+          </div>
         </div>
         {/* Progress Bar */}
-        <div className="w-full h-1 bg-muted rounded-full overflow-hidden">
+        <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
           <motion.div
             className="h-full bg-gradient-to-r from-primary to-secondary rounded-full"
             initial={{ width: 0 }}
             animate={{ width: `${progress}%` }}
           />
         </div>
+        {isCoachSpeaking && (
+          <motion.p 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="text-xs text-secondary text-center mt-2 animate-pulse"
+          >
+            🎙️ Coach hablando...
+          </motion.p>
+        )}
       </header>
 
       <MobileContent className="p-4 pb-32 space-y-4">
@@ -379,62 +516,90 @@ export default function Training() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
           >
-            <GlassCard variant="elevated" className="border-primary/30">
-              <div className="flex items-center justify-between mb-4">
-                <div>
-                  <p className="text-xs text-primary font-semibold uppercase tracking-wide">
-                    Ejercicio Actual
-                  </p>
-                  <h2 className="text-xl font-bold">{currentExercise.name}</h2>
+            <GlassCard variant="elevated" className="border-primary/30 overflow-hidden">
+              {/* Exercise Visual Header */}
+              <div className="relative bg-gradient-to-br from-primary/20 to-secondary/10 -mx-5 -mt-5 mb-4 p-5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary to-secondary flex items-center justify-center shadow-lg shadow-primary/30">
+                      <Dumbbell className="w-8 h-8 text-primary-foreground" />
+                    </div>
+                    <div>
+                      <p className="text-xs text-primary font-semibold uppercase tracking-wide mb-1">
+                        Ejercicio {currentExerciseIndex + 1}/{totalExercises}
+                      </p>
+                      <h2 className="text-xl font-bold">{currentExercise.name}</h2>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => navigate("/vision", { state: { exerciseName: currentExercise.name } })}
+                    className="px-3 py-2 bg-background/80 backdrop-blur text-accent rounded-xl text-xs font-semibold flex items-center gap-1 border border-accent/30"
+                  >
+                    <span>👁️</span> IA
+                  </button>
                 </div>
-                <button
-                  onClick={() => navigate("/vision", { state: { exerciseName: currentExercise.name } })}
-                  className="px-3 py-2 bg-accent/20 text-accent rounded-xl text-xs font-semibold flex items-center gap-1"
-                >
-                  <span>👁️</span> Visión IA
-                </button>
               </div>
 
-              {/* Set Counter */}
-              <div className="flex items-center justify-center gap-8 my-6">
-                <div className="text-center">
-                  <p className="text-4xl font-bold">{currentSet}</p>
-                  <p className="text-xs text-muted-foreground">Set actual</p>
+              {/* Stats Grid */}
+              <div className="grid grid-cols-3 gap-3 mb-5">
+                {/* Sets */}
+                <div className="bg-muted/50 rounded-xl p-3 text-center">
+                  <p className="text-3xl font-bold text-primary">{currentSet}<span className="text-lg text-muted-foreground">/{currentExercise.sets}</span></p>
+                  <p className="text-xs text-muted-foreground mt-1">Sets</p>
                 </div>
-                <div className="w-px h-12 bg-border" />
-                <div className="text-center">
-                  <p className="text-4xl font-bold">{currentExercise.reps}</p>
-                  <p className="text-xs text-muted-foreground">Reps objetivo</p>
+                
+                {/* Reps */}
+                <div className="bg-muted/50 rounded-xl p-3 text-center">
+                  <p className="text-3xl font-bold">{currentExercise.reps}</p>
+                  <p className="text-xs text-muted-foreground mt-1">Reps</p>
                 </div>
-                <div className="w-px h-12 bg-border" />
-                <div className="text-center">
-                  <p className="text-4xl font-bold">{currentExercise.weight_suggestion || 'BW'}</p>
-                  <p className="text-xs text-muted-foreground">Peso</p>
+                
+                {/* Weight with controls */}
+                <div className="bg-muted/50 rounded-xl p-2 text-center">
+                  <div className="flex items-center justify-center gap-1">
+                    <button 
+                      onClick={() => adjustWeight(-2.5)}
+                      className="w-7 h-7 rounded-lg bg-muted hover:bg-destructive/20 flex items-center justify-center transition-colors"
+                    >
+                      <Minus className="w-4 h-4" />
+                    </button>
+                    <p className="text-2xl font-bold min-w-[50px]">{currentWeight}</p>
+                    <button 
+                      onClick={() => adjustWeight(2.5)}
+                      className="w-7 h-7 rounded-lg bg-muted hover:bg-primary/20 flex items-center justify-center transition-colors"
+                    >
+                      <Plus className="w-4 h-4" />
+                    </button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">kg</p>
                 </div>
               </div>
 
               {currentExercise.notes && (
-                <p className="text-sm text-muted-foreground mb-4 text-center italic">
-                  💡 {currentExercise.notes}
-                </p>
+                <div className="bg-secondary/10 border border-secondary/20 rounded-xl p-3 mb-4">
+                  <p className="text-sm text-secondary">
+                    💡 {currentExercise.notes}
+                  </p>
+                </div>
               )}
 
               {/* Action Buttons */}
               <div className="grid grid-cols-2 gap-3">
                 <button
                   onClick={() => setIsRunning(!isRunning)}
-                  className="flex items-center justify-center gap-2 py-3 bg-muted rounded-xl font-semibold"
+                  className="flex items-center justify-center gap-2 py-4 bg-muted rounded-xl font-semibold"
                 >
                   {isRunning ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
                   {isRunning ? "Pausar" : "Reanudar"}
                 </button>
-                <button
+                <motion.button
+                  whileTap={{ scale: 0.95 }}
                   onClick={handleCompleteSet}
-                  className="flex items-center justify-center gap-2 py-3 bg-primary text-primary-foreground rounded-xl font-semibold"
+                  className="flex items-center justify-center gap-2 py-4 bg-gradient-to-r from-primary to-secondary text-primary-foreground rounded-xl font-bold shadow-lg shadow-primary/30"
                 >
                   <CheckCircle className="w-5 h-5" />
-                  Completar Set
-                </button>
+                  ¡Hecho!
+                </motion.button>
               </div>
             </GlassCard>
           </motion.div>
