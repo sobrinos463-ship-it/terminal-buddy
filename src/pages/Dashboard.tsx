@@ -1,9 +1,20 @@
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Bell, Play, Flame, Trophy, TrendingUp, Calendar, Sparkles } from "lucide-react";
+import { Bell, Play, Flame, Trophy, TrendingUp, Calendar, Sparkles, Loader2 } from "lucide-react";
 import { MobileFrame, MobileContent } from "@/components/layout/MobileFrame";
 import { BottomNav } from "@/components/layout/BottomNav";
 import { GlassCard } from "@/components/ui/GlassCard";
+import { useAuth } from "@/hooks/useAuth";
+import { supabase } from "@/integrations/supabase/client";
+
+interface Profile {
+  full_name: string | null;
+  avatar_url: string | null;
+  streak_days: number;
+  total_xp: number;
+  goal: string | null;
+}
 
 const quickActions = [
   { icon: Play, label: "Iniciar Entreno", color: "bg-primary", path: "/training" },
@@ -20,6 +31,50 @@ const todayWorkout = {
 
 export default function Dashboard() {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchProfile = async () => {
+      if (!user) return;
+      
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("user_id", user.id)
+        .maybeSingle();
+      
+      if (error) {
+        console.error("Error fetching profile:", error);
+      } else if (data) {
+        setProfile(data);
+      }
+      setIsLoading(false);
+    };
+
+    fetchProfile();
+  }, [user]);
+
+  const displayName = profile?.full_name || user?.email?.split("@")[0] || "Usuario";
+  const firstName = displayName.split(" ")[0];
+
+  const getGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return "¡Buenos días!";
+    if (hour < 18) return "¡Buenas tardes!";
+    return "¡Buenas noches!";
+  };
+
+  if (isLoading) {
+    return (
+      <MobileFrame>
+        <div className="flex-1 flex items-center justify-center">
+          <Loader2 className="w-8 h-8 animate-spin text-primary" />
+        </div>
+      </MobileFrame>
+    );
+  }
 
   return (
     <MobileFrame>
@@ -27,9 +82,9 @@ export default function Dashboard() {
       <header className="glass-panel sticky top-0 z-20 p-6 flex justify-between items-center border-b border-white/10">
         <div className="flex flex-col">
           <span className="text-muted-foreground text-sm font-medium">
-            ¡Hola de nuevo!
+            {getGreeting()}
           </span>
-          <h1 className="text-2xl font-bold">Alex Rivera</h1>
+          <h1 className="text-2xl font-bold">{firstName}</h1>
         </div>
         <div className="flex items-center gap-4">
           <button className="relative text-muted-foreground hover:text-foreground transition-colors">
@@ -40,11 +95,19 @@ export default function Dashboard() {
             onClick={() => navigate("/profile")}
             className="w-10 h-10 rounded-full border-2 border-secondary/30 overflow-hidden"
           >
-            <img
-              src="https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&h=100&fit=crop"
-              alt="Profile"
-              className="w-full h-full object-cover"
-            />
+            {profile?.avatar_url ? (
+              <img
+                src={profile.avatar_url}
+                alt="Profile"
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              <div className="w-full h-full bg-gradient-to-br from-primary to-accent flex items-center justify-center">
+                <span className="text-sm font-bold text-primary-foreground">
+                  {firstName.charAt(0).toUpperCase()}
+                </span>
+              </div>
+            )}
           </button>
         </div>
       </header>
@@ -66,9 +129,8 @@ export default function Dashboard() {
                   Insight de tu Coach IA
                 </p>
                 <p className="text-sm text-foreground leading-relaxed">
-                  Basándome en tu sueño de anoche (6.5h), te sugiero
-                  <span className="text-primary font-semibold"> reducir el volumen </span>
-                  hoy en un 15%.
+                  ¡Hola {firstName}! Tu racha de {profile?.streak_days || 0} días es impresionante.
+                  <span className="text-primary font-semibold"> Sigue así, máquina.</span>
                 </p>
               </div>
             </div>
@@ -84,12 +146,12 @@ export default function Dashboard() {
         >
           <GlassCard className="text-center">
             <Flame className="w-6 h-6 text-orange-400 mx-auto mb-2" />
-            <p className="text-2xl font-bold">12</p>
+            <p className="text-2xl font-bold">{profile?.streak_days || 0}</p>
             <p className="text-xs text-muted-foreground">Racha</p>
           </GlassCard>
           <GlassCard className="text-center">
             <Trophy className="w-6 h-6 text-yellow-400 mx-auto mb-2" />
-            <p className="text-2xl font-bold">847</p>
+            <p className="text-2xl font-bold">{profile?.total_xp || 0}</p>
             <p className="text-xs text-muted-foreground">XP Total</p>
           </GlassCard>
           <GlassCard className="text-center">
@@ -167,19 +229,24 @@ export default function Dashboard() {
           <GlassCard>
             <div className="flex justify-between items-end h-24">
               {["L", "M", "X", "J", "V", "S", "D"].map((day, i) => {
-                const heights = [60, 80, 40, 100, 0, 0, 0];
-                const isToday = i === 3;
+                const today = new Date().getDay();
+                const dayIndex = today === 0 ? 6 : today - 1;
+                const isToday = i === dayIndex;
+                const isPast = i < dayIndex;
+                const heights = isPast ? [60, 80, 40, 100, 70, 50, 0].slice(0, i + 1) : [];
+                const height = isPast ? heights[i] || 0 : isToday ? 80 : 0;
+                
                 return (
                   <div key={day} className="flex flex-col items-center gap-2">
                     <div
                       className={`w-8 rounded-t-lg transition-all ${
-                        heights[i] > 0
+                        height > 0
                           ? isToday
                             ? "bg-primary"
                             : "bg-secondary/60"
                           : "bg-muted"
                       }`}
-                      style={{ height: `${heights[i] || 8}%` }}
+                      style={{ height: `${height || 8}%` }}
                     />
                     <span
                       className={`text-xs ${
