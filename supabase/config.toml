@@ -11,3 +11,6 @@ verify_jwt = true
 
 [functions.generate-workout]
 verify_jwt = false
+
+[functions.analyze-form]
+verify_jwt = true
