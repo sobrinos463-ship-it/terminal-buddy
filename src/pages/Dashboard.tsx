@@ -39,6 +39,7 @@ export default function Dashboard() {
   const [routine, setRoutine] = useState<Routine | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [generatingRoutine, setGeneratingRoutine] = useState(false);
+  const [lastSessionDays, setLastSessionDays] = useState<number | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -75,11 +76,54 @@ export default function Dashboard() {
         setRoutine(routines[0]);
       }
 
+      // Fetch last session to calculate days since last workout
+      const { data: sessions } = await supabase
+        .from("workout_sessions")
+        .select("completed_at")
+        .eq("user_id", user.id)
+        .not("completed_at", "is", null)
+        .order("completed_at", { ascending: false })
+        .limit(1);
+
+      if (sessions && sessions[0]?.completed_at) {
+        const lastDate = new Date(sessions[0].completed_at);
+        const today = new Date();
+        const diffDays = Math.floor((today.getTime() - lastDate.getTime()) / (1000 * 60 * 60 * 24));
+        setLastSessionDays(diffDays);
+      }
+
       setIsLoading(false);
     };
 
     fetchData();
   }, [user]);
+
+  // Generate smart AI insight message
+  const getAIInsight = () => {
+    const firstName = profile?.full_name?.split(" ")[0] || "máquina";
+    const streak = profile?.streak_days || 0;
+    const goal = {
+      lose_fat: "quemar grasa",
+      build_muscle: "ganar músculo",
+      strength: "ganar fuerza",
+      endurance: "mejorar resistencia",
+      maintain: "mantenerte"
+    }[profile?.goal || ""] || "entrenar";
+
+    if (lastSessionDays === null) {
+      return `${firstName}, ¿listo para tu primer entreno? Tu objetivo es ${goal}.`;
+    }
+    if (lastSessionDays === 0) {
+      return `${firstName}, ¡ya entrenaste hoy! Descansa y recupérate.`;
+    }
+    if (lastSessionDays === 1) {
+      return `${firstName}, buen ritmo. ${streak > 3 ? `Llevas ${streak} días de racha.` : "Sigue así."}`;
+    }
+    if (lastSessionDays >= 3) {
+      return `${firstName}, llevas ${lastSessionDays} días sin entrenar. ¿Vamos hoy?`;
+    }
+    return `${firstName}, toca ${goal}. Tu cuerpo está listo.`;
+  };
 
   const handleGenerateRoutine = async () => {
     if (!user) return;
@@ -178,11 +222,10 @@ export default function Dashboard() {
               </div>
               <div className="flex-1">
                 <p className="text-xs text-secondary font-semibold uppercase tracking-wide mb-1">
-                  Insight de tu Coach IA
+                  Coach IA
                 </p>
                 <p className="text-sm text-foreground leading-relaxed">
-                  ¡Hola {firstName}! Tu racha de {profile?.streak_days || 0} días es impresionante.
-                  <span className="text-primary font-semibold"> Sigue así, máquina.</span>
+                  {getAIInsight()}
                 </p>
               </div>
             </div>

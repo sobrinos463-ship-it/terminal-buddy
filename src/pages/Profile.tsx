@@ -15,6 +15,7 @@ import {
   Zap,
   Heart,
   Loader2,
+  Target,
 } from "lucide-react";
 import { MobileFrame, MobileContent } from "@/components/layout/MobileFrame";
 import { BottomNav } from "@/components/layout/BottomNav";
@@ -22,6 +23,7 @@ import { GlassCard } from "@/components/ui/GlassCard";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { EditGoalModal } from "@/components/EditGoalModal";
 
 interface Profile {
   full_name: string | null;
@@ -38,14 +40,6 @@ const coachPersonalities = [
   { id: "scientist", icon: Brain, label: "El Científico", description: "Datos, métricas y optimización" },
 ];
 
-const menuItems = [
-  { icon: User, label: "Datos Personales", path: "/profile" },
-  { icon: Dumbbell, label: "Preferencias de Entrenamiento", path: "/profile" },
-  { icon: Brain, label: "Configuración de IA", path: "/profile" },
-  { icon: Bell, label: "Notificaciones", path: "/profile" },
-  { icon: Shield, label: "Privacidad y Datos", path: "/profile" },
-];
-
 export default function Profile() {
   const navigate = useNavigate();
   const { user, signOut } = useAuth();
@@ -54,6 +48,7 @@ export default function Profile() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [showGoalModal, setShowGoalModal] = useState(false);
 
   useEffect(() => {
     const fetchProfile = async () => {
@@ -242,18 +237,36 @@ export default function Profile() {
         >
           <h3 className="font-bold mb-4">Configuración</h3>
           <GlassCard className="divide-y divide-border p-0 overflow-hidden">
-            {menuItems.map((item) => (
-              <button
-                key={item.label}
-                className="w-full flex items-center justify-between p-4 hover:bg-muted/50 transition-colors"
-              >
-                <div className="flex items-center gap-3">
-                  <item.icon className="w-5 h-5 text-muted-foreground" />
-                  <span className="text-sm font-medium">{item.label}</span>
-                </div>
-                <ChevronRight className="w-5 h-5 text-muted-foreground" />
-              </button>
-            ))}
+            <button
+              onClick={() => setShowGoalModal(true)}
+              className="w-full flex items-center justify-between p-4 hover:bg-muted/50 transition-colors"
+            >
+              <div className="flex items-center gap-3">
+                <Target className="w-5 h-5 text-muted-foreground" />
+                <span className="text-sm font-medium">Cambiar Objetivo</span>
+              </div>
+              <ChevronRight className="w-5 h-5 text-muted-foreground" />
+            </button>
+            <button
+              onClick={() => navigate("/training")}
+              className="w-full flex items-center justify-between p-4 hover:bg-muted/50 transition-colors"
+            >
+              <div className="flex items-center gap-3">
+                <Dumbbell className="w-5 h-5 text-muted-foreground" />
+                <span className="text-sm font-medium">Mi Rutina Actual</span>
+              </div>
+              <ChevronRight className="w-5 h-5 text-muted-foreground" />
+            </button>
+            <button
+              onClick={() => navigate("/chat")}
+              className="w-full flex items-center justify-between p-4 hover:bg-muted/50 transition-colors"
+            >
+              <div className="flex items-center gap-3">
+                <Brain className="w-5 h-5 text-muted-foreground" />
+                <span className="text-sm font-medium">Hablar con Coach IA</span>
+              </div>
+              <ChevronRight className="w-5 h-5 text-muted-foreground" />
+            </button>
           </GlassCard>
         </motion.section>
 
@@ -279,6 +292,28 @@ export default function Profile() {
       </MobileContent>
 
       <BottomNav />
+
+      {/* Edit Goal Modal */}
+      {user && (
+        <EditGoalModal
+          isOpen={showGoalModal}
+          onClose={() => setShowGoalModal(false)}
+          currentGoal={profile?.goal || null}
+          currentLevel={profile?.experience_level || null}
+          userId={user.id}
+          onUpdate={() => {
+            // Refresh profile
+            supabase
+              .from("profiles")
+              .select("*")
+              .eq("user_id", user.id)
+              .maybeSingle()
+              .then(({ data }) => {
+                if (data) setProfile(data);
+              });
+          }}
+        />
+      )}
     </MobileFrame>
   );
 }
