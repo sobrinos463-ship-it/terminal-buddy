@@ -6,6 +6,8 @@ import { MobileFrame, MobileContent } from "@/components/layout/MobileFrame";
 import { BottomNav } from "@/components/layout/BottomNav";
 import { useVoiceChat } from "@/hooks/useVoiceChat";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/useAuth";
+import { supabase } from "@/integrations/supabase/client";
 
 interface Message {
   id: number;
@@ -14,24 +16,35 @@ interface Message {
   suggestions?: string[];
 }
 
+interface UserContext {
+  profile: {
+    full_name: string | null;
+    goal: string | null;
+    experience_level: string | null;
+    streak_days: number;
+    total_xp: number;
+  } | null;
+  currentRoutine: {
+    name: string;
+    target_muscle_groups: string[];
+    exercises: { name: string; sets: number; reps: string }[];
+  } | null;
+  lastSession: {
+    completed_at: string;
+    duration_seconds: number;
+    xp_earned: number;
+  } | null;
+}
+
 const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-coach`;
 
 export default function Chat() {
   const navigate = useNavigate();
   const { toast } = useToast();
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: 1,
-      role: "assistant",
-      content:
-        "¡Qué pasa, máquina! 💪 Soy tu Coach IA, listo para ayudarte a destrozar tus entrenamientos. ¿Qué necesitas hoy?",
-      suggestions: [
-        "¿Cómo mejoro mi press banca?",
-        "Ajusta mi rutina de hoy",
-        "Dame motivación",
-      ],
-    },
-  ]);
+  const { user } = useAuth();
+  const [userContext, setUserContext] = useState<UserContext | null>(null);
+  const [contextLoaded, setContextLoaded] = useState(false);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [autoPlayVoice, setAutoPlayVoice] = useState(true);
@@ -46,6 +59,82 @@ export default function Chat() {
     isPlayingAudio,
     stopAudio 
   } = useVoiceChat();
+
+  // Load user context on mount
+  useEffect(() => {
+    const loadContext = async () => {
+      if (!user) return;
+
+      try {
+        // Get profile
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("full_name, goal, experience_level, streak_days, total_xp")
+          .eq("user_id", user.id)
+          .maybeSingle();
+
+        // Get current routine with exercises
+        const { data: routines } = await supabase
+          .from("workout_routines")
+          .select(`
+            name,
+            target_muscle_groups,
+            routine_exercises (name, sets, reps)
+          `)
+          .eq("user_id", user.id)
+          .eq("is_active", true)
+          .order("created_at", { ascending: false })
+          .limit(1);
+
+        // Get last workout session
+        const { data: sessions } = await supabase
+          .from("workout_sessions")
+          .select("completed_at, duration_seconds, xp_earned")
+          .eq("user_id", user.id)
+          .not("completed_at", "is", null)
+          .order("completed_at", { ascending: false })
+          .limit(1);
+
+        const context: UserContext = {
+          profile: profile || null,
+          currentRoutine: routines && routines[0] ? {
+            name: routines[0].name,
+            target_muscle_groups: routines[0].target_muscle_groups,
+            exercises: routines[0].routine_exercises || []
+          } : null,
+          lastSession: sessions && sessions[0] ? sessions[0] : null
+        };
+
+        setUserContext(context);
+
+        // Set initial greeting based on context
+        const firstName = profile?.full_name?.split(" ")[0] || "máquina";
+        const goalText = {
+          lose_fat: "perder grasa",
+          build_muscle: "ganar músculo",
+          strength: "ganar fuerza",
+          endurance: "mejorar resistencia",
+          maintain: "mantenerte"
+        }[profile?.goal || ""] || "entrenar";
+
+        setMessages([{
+          id: 1,
+          role: "assistant",
+          content: `¡${firstName}! ¿Qué necesitas?`,
+          suggestions: context.currentRoutine 
+            ? ["Entrenar hoy", "Cambiar rutina", "Ver mi progreso"]
+            : ["Generar mi rutina", "Consejo de entrenamiento"]
+        }]);
+
+      } catch (error) {
+        console.error("Error loading context:", error);
+      } finally {
+        setContextLoaded(true);
+      }
+    };
+
+    loadContext();
+  }, [user]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -76,6 +165,7 @@ export default function Chat() {
             role: m.role,
             content: m.content,
           })),
+          userContext: userContext,
         }),
       });
 
