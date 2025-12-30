@@ -10,12 +10,22 @@ import {
   Volume2,
   Loader2,
   RotateCcw,
-  Info
+  Info,
+  Play,
+  Pause,
+  Zap
 } from "lucide-react";
 import { MobileFrame } from "@/components/layout/MobileFrame";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+
+interface BodyPoint {
+  name: string;
+  status: "good" | "warning" | "error";
+  angle?: number;
+  idealAngle?: number;
+}
 
 interface FormIssue {
   bodyPart: string;
@@ -29,6 +39,7 @@ interface FormIssue {
 interface FormAnalysis {
   overallScore: number;
   issues: FormIssue[];
+  bodyPoints: BodyPoint[];
   tempo: number;
   depth: "shallow" | "parallel" | "deep";
   depthScore: string;
@@ -40,12 +51,16 @@ export default function VisionAnalysis() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const autoAnalyzeRef = useRef<NodeJS.Timeout | null>(null);
+  const lastSpokenRef = useRef<string>("");
   
   const [isStreaming, setIsStreaming] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysis, setAnalysis] = useState<FormAnalysis | null>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [facingMode, setFacingMode] = useState<"user" | "environment">("environment");
+  const [autoMode, setAutoMode] = useState(false);
+  const [analysisCount, setAnalysisCount] = useState(0);
   
   // Get exercise name from navigation state
   const exerciseName = location.state?.exerciseName || "Ejercicio";
@@ -111,7 +126,7 @@ export default function VisionAnalysis() {
     };
   }, [stopCamera]);
 
-  const captureAndAnalyze = async () => {
+  const captureAndAnalyze = useCallback(async (silent = false) => {
     if (!videoRef.current || !canvasRef.current || isAnalyzing) return;
 
     setIsAnalyzing(true);
@@ -131,20 +146,20 @@ export default function VisionAnalysis() {
       ctx.drawImage(video, 0, 0);
 
       // Convert to base64
-      const imageData = canvas.toDataURL("image/jpeg", 0.8);
+      const imageData = canvas.toDataURL("image/jpeg", 0.7);
       const base64 = imageData.split(",")[1];
 
       // Get auth session
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
-        toast.error("Sesión expirada");
+        if (!silent) toast.error("Sesión expirada");
         navigate("/auth");
         return;
       }
 
       // Call analyze-form function
       const { data, error } = await supabase.functions.invoke("analyze-form", {
-        body: { imageBase64: base64, exerciseName },
+        body: { imageBase64: base64, exerciseName, detailed: true },
         headers: {
           Authorization: `Bearer ${session.access_token}`
         }
@@ -153,19 +168,59 @@ export default function VisionAnalysis() {
       if (error) throw error;
       if (data.error) throw new Error(data.error);
 
-      setAnalysis(data);
+      // Add default bodyPoints if not present
+      const analysisWithPoints: FormAnalysis = {
+        ...data,
+        bodyPoints: data.bodyPoints || []
+      };
+
+      setAnalysis(analysisWithPoints);
+      setAnalysisCount(prev => prev + 1);
       
-      // Speak the main issue if there's a warning or error
-      const mainIssue = data.issues?.find((i: FormIssue) => i.severity !== "good");
-      if (mainIssue) {
-        speakFeedback(mainIssue.message);
+      // Speak the main issue if there's a warning or error (avoid repeating)
+      const mainIssue = data.issues?.find((i: FormIssue) => i.severity === "error");
+      if (mainIssue && mainIssue.message !== lastSpokenRef.current) {
+        lastSpokenRef.current = mainIssue.message;
+        speakFeedback(`¡Corrige! ${mainIssue.correction}`);
       }
 
     } catch (error) {
       console.error("Analysis error:", error);
-      toast.error("Error al analizar. Intenta de nuevo.");
+      if (!silent) toast.error("Error al analizar");
     } finally {
       setIsAnalyzing(false);
+    }
+  }, [isAnalyzing, exerciseName, navigate]);
+
+  // Auto-analysis mode
+  useEffect(() => {
+    if (autoMode && isStreaming) {
+      // Start auto-analysis every 4 seconds
+      autoAnalyzeRef.current = setInterval(() => {
+        captureAndAnalyze(true);
+      }, 4000);
+      
+      // Initial analysis
+      captureAndAnalyze(true);
+    } else {
+      // Stop auto-analysis
+      if (autoAnalyzeRef.current) {
+        clearInterval(autoAnalyzeRef.current);
+        autoAnalyzeRef.current = null;
+      }
+    }
+
+    return () => {
+      if (autoAnalyzeRef.current) {
+        clearInterval(autoAnalyzeRef.current);
+      }
+    };
+  }, [autoMode, isStreaming, captureAndAnalyze]);
+
+  const toggleAutoMode = () => {
+    setAutoMode(prev => !prev);
+    if (!autoMode) {
+      toast.success("Análisis automático activado");
     }
   };
 
@@ -282,40 +337,95 @@ export default function VisionAnalysis() {
           </div>
         )}
 
-        {/* Recording Indicator */}
+        {/* Recording Indicator + Auto Mode */}
         {isStreaming && (
-          <div className="absolute top-20 left-4 flex items-center gap-2 bg-destructive/80 px-3 py-1.5 rounded-full">
-            <div className="w-2 h-2 bg-foreground rounded-full animate-pulse" />
-            <span className="text-xs font-bold text-foreground">EN VIVO</span>
-          </div>
-        )}
-
-        {/* Score Overlay */}
-        {analysis && isStreaming && (
-          <div className="absolute top-20 right-4 glass-card px-3 py-2">
-            <p className="text-xs text-muted-foreground">Forma</p>
-            <p className={`text-2xl font-mono font-bold ${
-              analysis.overallScore >= 80 ? "text-primary" : 
-              analysis.overallScore >= 60 ? "text-yellow-400" : "text-destructive"
-            }`}>
-              {analysis.overallScore}%
-            </p>
-          </div>
-        )}
-
-        {/* Analyze Button */}
-        {isStreaming && (
-          <button
-            onClick={captureAndAnalyze}
-            disabled={isAnalyzing}
-            className="absolute bottom-32 left-1/2 -translate-x-1/2 w-20 h-20 rounded-full bg-primary flex items-center justify-center shadow-lg shadow-primary/50 disabled:opacity-50"
-          >
-            {isAnalyzing ? (
-              <Loader2 className="w-8 h-8 text-primary-foreground animate-spin" />
-            ) : (
-              <Camera className="w-8 h-8 text-primary-foreground" />
+          <div className="absolute top-20 left-4 flex flex-col gap-2">
+            <div className="flex items-center gap-2 bg-destructive/80 px-3 py-1.5 rounded-full">
+              <div className="w-2 h-2 bg-foreground rounded-full animate-pulse" />
+              <span className="text-xs font-bold text-foreground">EN VIVO</span>
+            </div>
+            {autoMode && (
+              <div className="flex items-center gap-2 bg-primary/80 px-3 py-1.5 rounded-full">
+                <Zap className="w-3 h-3 text-primary-foreground animate-pulse" />
+                <span className="text-xs font-bold text-primary-foreground">AUTO</span>
+              </div>
             )}
-          </button>
+          </div>
+        )}
+
+        {/* Score + Body Points Overlay */}
+        {analysis && isStreaming && (
+          <div className="absolute top-20 right-4 flex flex-col gap-2">
+            <div className="glass-card px-3 py-2">
+              <p className="text-xs text-muted-foreground">Forma</p>
+              <p className={`text-2xl font-mono font-bold ${
+                analysis.overallScore >= 80 ? "text-primary" : 
+                analysis.overallScore >= 60 ? "text-yellow-400" : "text-destructive"
+              }`}>
+                {analysis.overallScore}%
+              </p>
+            </div>
+            
+            {/* Body Points Status */}
+            {analysis.bodyPoints && analysis.bodyPoints.length > 0 && (
+              <div className="glass-card px-3 py-2 space-y-1">
+                <p className="text-[10px] text-muted-foreground uppercase">Puntos</p>
+                {analysis.bodyPoints.slice(0, 5).map((point, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    <div className={`w-2 h-2 rounded-full ${
+                      point.status === "good" ? "bg-primary" : 
+                      point.status === "warning" ? "bg-yellow-400" : "bg-destructive"
+                    }`} />
+                    <span className="text-[10px]">{point.name}</span>
+                    {point.angle && (
+                      <span className="text-[9px] text-muted-foreground">{point.angle}°</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="glass-card px-3 py-1 text-center">
+              <p className="text-[10px] text-muted-foreground">Análisis #{analysisCount}</p>
+            </div>
+          </div>
+        )}
+
+        {/* Buttons Row */}
+        {isStreaming && (
+          <div className="absolute bottom-32 left-0 right-0 flex items-center justify-center gap-4">
+            {/* Auto Mode Toggle */}
+            <button
+              onClick={toggleAutoMode}
+              className={`w-14 h-14 rounded-full flex items-center justify-center shadow-lg ${
+                autoMode 
+                  ? "bg-primary shadow-primary/50" 
+                  : "bg-muted/80 backdrop-blur-sm"
+              }`}
+            >
+              {autoMode ? (
+                <Pause className="w-6 h-6 text-primary-foreground" />
+              ) : (
+                <Play className="w-6 h-6" />
+              )}
+            </button>
+
+            {/* Manual Capture */}
+            <button
+              onClick={() => captureAndAnalyze(false)}
+              disabled={isAnalyzing}
+              className="w-20 h-20 rounded-full bg-primary flex items-center justify-center shadow-lg shadow-primary/50 disabled:opacity-50"
+            >
+              {isAnalyzing ? (
+                <Loader2 className="w-8 h-8 text-primary-foreground animate-spin" />
+              ) : (
+                <Camera className="w-8 h-8 text-primary-foreground" />
+              )}
+            </button>
+
+            {/* Placeholder for symmetry */}
+            <div className="w-14 h-14" />
+          </div>
         )}
       </main>
 
@@ -406,10 +516,10 @@ export default function VisionAnalysis() {
       </AnimatePresence>
 
       {/* Initial instructions when no analysis */}
-      {isStreaming && !analysis && !isAnalyzing && (
+      {isStreaming && !analysis && !isAnalyzing && !autoMode && (
         <div className="absolute bottom-4 left-4 right-4 glass-card text-center py-3">
           <p className="text-sm text-muted-foreground">
-            Posiciónate de perfil y toca el botón para analizar tu forma
+            Toca <Play className="w-4 h-4 inline" /> para análisis automático o <Camera className="w-4 h-4 inline" /> para captura manual
           </p>
         </div>
       )}
