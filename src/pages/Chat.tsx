@@ -139,13 +139,21 @@ export default function Chat() {
           maintain: "mantenerte"
         }[profile?.goal || ""] || "entrenar";
 
+        // Coach greeting - direct and real
+        const greetings = [
+          `${firstName}. ¿Entrenamos?`,
+          `${firstName}, vamos a darle.`,
+          `Aquí estoy, ${firstName}.`
+        ];
+        const randomGreeting = greetings[Math.floor(Math.random() * greetings.length)];
+
         setMessages([{
           id: 1,
           role: "assistant",
-          content: `¡${firstName}! ¿Qué necesitas?`,
+          content: randomGreeting,
           suggestions: context.currentRoutine 
-            ? ["Entrenar hoy", "Cambiar rutina", "Ver mi progreso"]
-            : ["Generar mi rutina", "Consejo de entrenamiento"]
+            ? ["Vamos a entrenar", "¿Qué tal mi progreso?", "Dame un consejo"]
+            : ["Crear mi rutina", "Consejo rápido"]
         }]);
 
       } catch (error) {
