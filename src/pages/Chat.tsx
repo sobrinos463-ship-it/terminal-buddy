@@ -1,69 +1,184 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { ChevronLeft, Send, Mic, Sparkles } from "lucide-react";
+import { ChevronLeft, Send, Mic, MicOff, Sparkles, Volume2, VolumeX, Loader2 } from "lucide-react";
 import { MobileFrame, MobileContent } from "@/components/layout/MobileFrame";
 import { BottomNav } from "@/components/layout/BottomNav";
+import { useVoiceChat } from "@/hooks/useVoiceChat";
+import { useToast } from "@/hooks/use-toast";
 
 interface Message {
   id: number;
-  type: "ai" | "user";
+  role: "assistant" | "user";
   content: string;
   suggestions?: string[];
 }
 
-const initialMessages: Message[] = [
-  {
-    id: 1,
-    type: "ai",
-    content:
-      "¡Hola Alex! 👋 Acabo de analizar tu última sesión. Completaste un 95% del volumen planificado. ¿En qué puedo ayudarte hoy?",
-    suggestions: [
-      "¿Cómo puedo mejorar mi press banca?",
-      "Ajusta mi plan de hoy",
-      "Explícame mi progreso",
-    ],
-  },
-];
+const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-coach`;
 
 export default function Chat() {
   const navigate = useNavigate();
-  const [messages, setMessages] = useState<Message[]>(initialMessages);
+  const { toast } = useToast();
+  const [messages, setMessages] = useState<Message[]>([
+    {
+      id: 1,
+      role: "assistant",
+      content:
+        "¡Qué pasa, máquina! 💪 Soy tu Coach IA, listo para ayudarte a destrozar tus entrenamientos. ¿Qué necesitas hoy?",
+      suggestions: [
+        "¿Cómo mejoro mi press banca?",
+        "Ajusta mi rutina de hoy",
+        "Dame motivación",
+      ],
+    },
+  ]);
   const [inputValue, setInputValue] = useState("");
-  const [isTyping, setIsTyping] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [autoPlayVoice, setAutoPlayVoice] = useState(true);
+  
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const { 
+    isRecording, 
+    isTranscribing, 
+    startRecording, 
+    stopRecording, 
+    playAudio, 
+    isPlayingAudio,
+    stopAudio 
+  } = useVoiceChat();
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  const streamChat = async (userMessage: string) => {
+    const userMsg: Message = {
+      id: Date.now(),
+      role: "user",
+      content: userMessage,
+    };
+    
+    setMessages(prev => [...prev, userMsg]);
+    setIsLoading(true);
+
+    let assistantContent = "";
+    const assistantId = Date.now() + 1;
+
+    try {
+      const response = await fetch(CHAT_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+        },
+        body: JSON.stringify({
+          messages: [...messages, userMsg].map(m => ({
+            role: m.role,
+            content: m.content,
+          })),
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `Error ${response.status}`);
+      }
+
+      if (!response.body) {
+        throw new Error("No response body");
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let textBuffer = "";
+
+      // Create assistant message
+      setMessages(prev => [...prev, { id: assistantId, role: "assistant", content: "" }]);
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        textBuffer += decoder.decode(value, { stream: true });
+
+        let newlineIndex: number;
+        while ((newlineIndex = textBuffer.indexOf("\n")) !== -1) {
+          let line = textBuffer.slice(0, newlineIndex);
+          textBuffer = textBuffer.slice(newlineIndex + 1);
+
+          if (line.endsWith("\r")) line = line.slice(0, -1);
+          if (line.startsWith(":") || line.trim() === "") continue;
+          if (!line.startsWith("data: ")) continue;
+
+          const jsonStr = line.slice(6).trim();
+          if (jsonStr === "[DONE]") break;
+
+          try {
+            const parsed = JSON.parse(jsonStr);
+            const content = parsed.choices?.[0]?.delta?.content;
+            if (content) {
+              assistantContent += content;
+              setMessages(prev =>
+                prev.map(m =>
+                  m.id === assistantId ? { ...m, content: assistantContent } : m
+                )
+              );
+            }
+          } catch {
+            // Partial JSON, continue
+          }
+        }
+      }
+
+      // Auto-play voice response
+      if (autoPlayVoice && assistantContent.length > 0) {
+        playAudio(assistantContent);
+      }
+
+    } catch (error) {
+      console.error("Chat error:", error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error instanceof Error ? error.message : "Error al conectar con el Coach IA",
+      });
+      // Remove failed assistant message
+      setMessages(prev => prev.filter(m => m.id !== assistantId));
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const handleSend = (text?: string) => {
     const messageText = text || inputValue;
-    if (!messageText.trim()) return;
-
-    const userMessage: Message = {
-      id: messages.length + 1,
-      type: "user",
-      content: messageText,
-    };
-    setMessages([...messages, userMessage]);
+    if (!messageText.trim() || isLoading) return;
     setInputValue("");
-    setIsTyping(true);
-
-    setTimeout(() => {
-      setIsTyping(false);
-      const aiResponse: Message = {
-        id: messages.length + 2,
-        type: "ai",
-        content: getAIResponse(messageText),
-      };
-      setMessages((prev) => [...prev, aiResponse]);
-    }, 1500);
+    streamChat(messageText);
   };
 
-  const getAIResponse = (userMessage: string): string => {
-    if (userMessage.toLowerCase().includes("press banca")) {
-      return "Para mejorar tu press banca, te recomiendo enfocarte en: 1) Retracción escapular constante, 2) Arco lumbar controlado, 3) Grip ancho para más activación pectoral. Basándome en tus datos, podrías aumentar 5kg en las próximas 2 semanas si mantienes la consistencia. 💪";
+  const handleVoiceButton = async () => {
+    if (isRecording) {
+      const transcribedText = await stopRecording();
+      if (transcribedText && transcribedText.trim()) {
+        streamChat(transcribedText);
+      } else if (transcribedText === null) {
+        toast({
+          variant: "destructive",
+          title: "Error de voz",
+          description: "No se pudo transcribir el audio. Intenta de nuevo.",
+        });
+      }
+    } else {
+      try {
+        await startRecording();
+      } catch {
+        toast({
+          variant: "destructive",
+          title: "Micrófono no disponible",
+          description: "Permite el acceso al micrófono para usar voz.",
+        });
+      }
     }
-    if (userMessage.toLowerCase().includes("plan")) {
-      return "He revisado tu estado actual. Considerando tu sueño de anoche (6.5h) y la sesión intensa de ayer, sugiero reducir el volumen un 15% hoy. ¿Quieres que aplique este ajuste automáticamente?";
-    }
-    return "Entendido. He analizado tu solicitud y estoy procesando la mejor recomendación basada en tu historial de entrenamiento y objetivos. ¿Hay algo más específico que te gustaría saber?";
   };
 
   return (
@@ -79,21 +194,29 @@ export default function Chat() {
           </button>
           <div className="flex items-center gap-3">
             <div className="relative">
-              <img
-                src="https://images.unsplash.com/photo-1485827404703-89b55fcc595e?w=100&h=100&fit=crop"
-                alt="Coach AI"
-                className="w-10 h-10 rounded-full border-2 border-primary object-cover"
-              />
-              <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-primary rounded-full border-2 border-background" />
+              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center">
+                <Sparkles className="w-5 h-5 text-primary-foreground" />
+              </div>
+              <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-primary rounded-full border-2 border-background animate-pulse" />
             </div>
             <div>
               <h1 className="font-bold">Coach IA</h1>
-              <p className="text-xs text-primary">En línea • Analizando</p>
+              <p className="text-xs text-primary">
+                {isLoading ? "Escribiendo..." : isPlayingAudio ? "Hablando..." : "En línea"}
+              </p>
             </div>
           </div>
         </div>
-        <button className="w-10 h-10 flex items-center justify-center rounded-full bg-secondary/20 text-secondary">
-          <Sparkles className="w-5 h-5" />
+        <button 
+          onClick={() => {
+            setAutoPlayVoice(!autoPlayVoice);
+            if (isPlayingAudio) stopAudio();
+          }}
+          className={`w-10 h-10 flex items-center justify-center rounded-full transition-colors ${
+            autoPlayVoice ? "bg-secondary/20 text-secondary" : "bg-muted text-muted-foreground"
+          }`}
+        >
+          {autoPlayVoice ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
         </button>
       </header>
 
@@ -106,26 +229,24 @@ export default function Chat() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               className={`flex ${
-                message.type === "user" ? "justify-end" : "justify-start"
+                message.role === "user" ? "justify-end" : "justify-start"
               }`}
             >
-              <div className={`max-w-[85%] ${message.type === "ai" ? "flex gap-3" : ""}`}>
-                {message.type === "ai" && (
-                  <img
-                    src="https://images.unsplash.com/photo-1485827404703-89b55fcc595e?w=100&h=100&fit=crop"
-                    alt="AI"
-                    className="w-8 h-8 rounded-full object-cover shrink-0"
-                  />
+              <div className={`max-w-[85%] ${message.role === "assistant" ? "flex gap-3" : ""}`}>
+                {message.role === "assistant" && (
+                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center shrink-0">
+                    <Sparkles className="w-4 h-4 text-primary-foreground" />
+                  </div>
                 )}
                 <div>
                   <div
                     className={`px-4 py-3 ${
-                      message.type === "ai"
+                      message.role === "assistant"
                         ? "bg-muted/80 rounded-2xl rounded-tl-sm border border-white/10"
                         : "bg-gradient-to-br from-secondary to-indigo-600 rounded-2xl rounded-tr-sm text-foreground shadow-lg shadow-secondary/30"
                     }`}
                   >
-                    <p className="text-sm leading-relaxed">{message.content}</p>
+                    <p className="text-sm leading-relaxed whitespace-pre-wrap">{message.content}</p>
                   </div>
 
                   {/* Suggestions */}
@@ -137,7 +258,8 @@ export default function Chat() {
                           whileHover={{ scale: 1.02 }}
                           whileTap={{ scale: 0.98 }}
                           onClick={() => handleSend(suggestion)}
-                          className="px-3 py-2 glass-card text-xs font-medium hover:bg-secondary/20 hover:border-secondary/50 transition-all"
+                          disabled={isLoading}
+                          className="px-3 py-2 glass-card text-xs font-medium hover:bg-secondary/20 hover:border-secondary/50 transition-all disabled:opacity-50"
                         >
                           {suggestion}
                         </motion.button>
@@ -150,9 +272,9 @@ export default function Chat() {
           ))}
         </AnimatePresence>
 
-        {/* Typing Indicator */}
+        {/* Loading Indicator */}
         <AnimatePresence>
-          {isTyping && (
+          {isLoading && messages[messages.length - 1]?.content === "" && (
             <motion.div
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
@@ -160,51 +282,77 @@ export default function Chat() {
               className="flex justify-start"
             >
               <div className="flex gap-3">
-                <img
-                  src="https://images.unsplash.com/photo-1485827404703-89b55fcc595e?w=100&h=100&fit=crop"
-                  alt="AI"
-                  className="w-8 h-8 rounded-full object-cover"
-                />
+                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center">
+                  <Sparkles className="w-4 h-4 text-primary-foreground" />
+                </div>
                 <div className="bg-muted/80 rounded-2xl rounded-tl-sm px-4 py-3 border border-white/10">
                   <div className="flex gap-1">
                     <span className="w-2 h-2 bg-muted-foreground rounded-full animate-typing" />
-                    <span
-                      className="w-2 h-2 bg-muted-foreground rounded-full animate-typing"
-                      style={{ animationDelay: "-1.1s" }}
-                    />
-                    <span
-                      className="w-2 h-2 bg-muted-foreground rounded-full animate-typing"
-                      style={{ animationDelay: "-0.9s" }}
-                    />
+                    <span className="w-2 h-2 bg-muted-foreground rounded-full animate-typing" style={{ animationDelay: "-1.1s" }} />
+                    <span className="w-2 h-2 bg-muted-foreground rounded-full animate-typing" style={{ animationDelay: "-0.9s" }} />
                   </div>
                 </div>
               </div>
             </motion.div>
           )}
         </AnimatePresence>
+
+        <div ref={messagesEndRef} />
       </MobileContent>
 
       {/* Input Area */}
       <div className="absolute bottom-16 left-0 right-0 glass-panel border-t border-white/10 p-4">
         <div className="flex gap-3">
-          <button className="w-12 h-12 bg-muted rounded-xl flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors">
-            <Mic className="w-5 h-5" />
+          <button 
+            onClick={handleVoiceButton}
+            disabled={isTranscribing || isLoading}
+            className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all ${
+              isRecording 
+                ? "bg-red-500 text-white animate-pulse" 
+                : isTranscribing
+                  ? "bg-muted text-muted-foreground"
+                  : "bg-muted text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {isTranscribing ? (
+              <Loader2 className="w-5 h-5 animate-spin" />
+            ) : isRecording ? (
+              <MicOff className="w-5 h-5" />
+            ) : (
+              <Mic className="w-5 h-5" />
+            )}
           </button>
           <input
             type="text"
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleSend()}
-            placeholder="Pregunta a tu Coach..."
-            className="flex-1 bg-muted/50 border border-white/10 rounded-xl px-4 py-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-secondary/50"
+            placeholder={isRecording ? "Escuchando..." : "Pregunta a tu Coach..."}
+            disabled={isLoading || isRecording}
+            className="flex-1 bg-muted/50 border border-white/10 rounded-xl px-4 py-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-secondary/50 disabled:opacity-50"
           />
           <button
             onClick={() => handleSend()}
-            className="w-12 h-12 bg-secondary rounded-xl flex items-center justify-center text-secondary-foreground hover:bg-secondary/80 transition-colors"
+            disabled={isLoading || !inputValue.trim()}
+            className="w-12 h-12 bg-secondary rounded-xl flex items-center justify-center text-secondary-foreground hover:bg-secondary/80 transition-colors disabled:opacity-50"
           >
-            <Send className="w-5 h-5" />
+            {isLoading ? (
+              <Loader2 className="w-5 h-5 animate-spin" />
+            ) : (
+              <Send className="w-5 h-5" />
+            )}
           </button>
         </div>
+        
+        {isRecording && (
+          <motion.div 
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            className="mt-2 text-center"
+          >
+            <p className="text-xs text-red-400 animate-pulse">🎙️ Grabando... Toca el micrófono para enviar</p>
+          </motion.div>
+        )}
       </div>
 
       <BottomNav />
