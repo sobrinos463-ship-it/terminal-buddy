@@ -35,19 +35,42 @@ serve(async (req) => {
     }
 
     // Get user profile
-    const { data: profile } = await supabaseClient
+    const { data: profile, error: profileError } = await supabaseClient
       .from("profiles")
       .select("*")
       .eq("user_id", user.id)
       .maybeSingle();
 
-    const goal = profile?.goal || "ganar_musculo";
-    const experienceLevel = profile?.experience_level || "intermedio";
+    if (profileError) {
+      console.error("Error fetching profile:", profileError);
+    }
+
+    console.log("Profile data:", JSON.stringify(profile));
+
+    // Map Spanish goals to English for better AI understanding
+    const goalMapping: Record<string, string> = {
+      "lose_fat": "perder grasa corporal",
+      "build_muscle": "ganar masa muscular",
+      "strength": "ganar fuerza",
+      "endurance": "mejorar resistencia cardiovascular",
+      "maintain": "mantener forma física actual"
+    };
+
+    const levelMapping: Record<string, string> = {
+      "beginner": "principiante",
+      "intermediate": "intermedio",
+      "advanced": "avanzado",
+      "elite": "elite"
+    };
+
+    const goal = profile?.goal ? (goalMapping[profile.goal] || profile.goal) : "ganar masa muscular";
+    const experienceLevel = profile?.experience_level ? (levelMapping[profile.experience_level] || profile.experience_level) : "intermedio";
 
     console.log(`Generating workout for user ${user.id}, goal: ${goal}, level: ${experienceLevel}`);
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) {
+      console.error("LOVABLE_API_KEY is not configured");
       throw new Error("LOVABLE_API_KEY is not configured");
     }
 
@@ -56,13 +79,16 @@ El usuario tiene el objetivo de "${goal}" y su nivel de experiencia es "${experi
 Debes generar una rutina de entrenamiento adaptada a su perfil.`;
 
     const userPrompt = `Genera una rutina de entrenamiento para hoy. La rutina debe incluir:
-- Un nombre descriptivo para la rutina
-- Una breve descripción
-- Los grupos musculares objetivo
-- Un estimado de duración en minutos
-- Una lista de 4-6 ejercicios con: nombre, sets, reps, peso sugerido (si aplica), tiempo de descanso en segundos, y notas opcionales.
+- Un nombre descriptivo para la rutina en español
+- Una breve descripción motivadora
+- Los grupos musculares objetivo (en español, ej: "Pecho", "Espalda", "Piernas")
+- Un estimado de duración en minutos (entre 30 y 60)
+- Una lista de 4-6 ejercicios con: nombre del ejercicio, número de sets (3-5), reps (texto como "8-12" o "10"), peso sugerido (texto como "20kg" o "Sin peso"), tiempo de descanso en segundos (60-120), y notas opcionales.
 
-El nivel del usuario es ${experienceLevel} y su objetivo es ${goal}.`;
+Nivel del usuario: ${experienceLevel}
+Objetivo: ${goal}`;
+
+    console.log("Sending request to AI gateway...");
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -142,14 +168,26 @@ El nivel del usuario es ${experienceLevel} y su objetivo es ${goal}.`;
     }
 
     const aiResponse = await response.json();
-    console.log("AI response received:", JSON.stringify(aiResponse));
+    console.log("AI response received:", JSON.stringify(aiResponse).substring(0, 500));
 
     const toolCall = aiResponse.choices?.[0]?.message?.tool_calls?.[0];
-    if (!toolCall || toolCall.function.name !== "create_workout_routine") {
-      throw new Error("Invalid AI response format");
+    if (!toolCall) {
+      console.error("No tool call in response:", JSON.stringify(aiResponse));
+      throw new Error("La IA no generó una rutina válida");
+    }
+    
+    if (toolCall.function.name !== "create_workout_routine") {
+      console.error("Wrong function called:", toolCall.function.name);
+      throw new Error("Formato de respuesta inválido");
     }
 
-    const workoutData = JSON.parse(toolCall.function.arguments);
+    let workoutData;
+    try {
+      workoutData = JSON.parse(toolCall.function.arguments);
+    } catch (parseError) {
+      console.error("Error parsing workout data:", parseError, toolCall.function.arguments);
+      throw new Error("Error al procesar la rutina generada");
+    }
     console.log("Parsed workout data:", JSON.stringify(workoutData));
 
     // Map difficulty level
@@ -159,21 +197,40 @@ El nivel del usuario es ${experienceLevel} y su objetivo es ${goal}.`;
       "advanced": "avanzado"
     };
 
+    // Deactivate existing active routines for this user
+    const { error: deactivateError } = await supabaseClient
+      .from("workout_routines")
+      .update({ is_active: false })
+      .eq("user_id", user.id)
+      .eq("is_active", true);
+
+    if (deactivateError) {
+      console.error("Error deactivating old routines:", deactivateError);
+      // Continue anyway, this is not critical
+    }
+
     // Save routine to database
     const { data: routine, error: routineError } = await supabaseClient
       .from("workout_routines")
       .insert({
         user_id: user.id,
-        name: workoutData.name,
-        description: workoutData.description,
-        target_muscle_groups: workoutData.target_muscle_groups,
-        difficulty_level: difficultyMap[workoutData.difficulty_level] || workoutData.difficulty_level,
-        estimated_duration_minutes: workoutData.estimated_duration_minutes,
+        name: workoutData.name || "Rutina del día",
+        description: workoutData.description || "Rutina generada por IA",
+        target_muscle_groups: workoutData.target_muscle_groups || ["General"],
+        difficulty_level: difficultyMap[workoutData.difficulty_level] || "intermedio",
+        estimated_duration_minutes: workoutData.estimated_duration_minutes || 45,
         generated_by_ai: true,
         is_active: true
       })
       .select()
       .single();
+
+    if (routineError) {
+      console.error("Error saving routine:", routineError);
+      throw new Error(`Error al guardar la rutina: ${routineError.message}`);
+    }
+
+    console.log("Routine saved with id:", routine.id);
 
     if (routineError) {
       console.error("Error saving routine:", routineError);
