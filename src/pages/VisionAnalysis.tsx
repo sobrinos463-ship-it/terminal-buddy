@@ -127,12 +127,34 @@ export default function VisionAnalysis() {
   }, [stopCamera]);
 
   const captureAndAnalyze = useCallback(async (silent = false) => {
-    if (!videoRef.current || !canvasRef.current || isAnalyzing) return;
+    if (!videoRef.current || !canvasRef.current) {
+      console.log("No video or canvas ref");
+      if (!silent) toast.error("Cámara no disponible");
+      return;
+    }
+    
+    if (isAnalyzing) {
+      console.log("Already analyzing, skipping");
+      return;
+    }
+
+    const video = videoRef.current;
+    
+    // Check if video is ready
+    if (video.readyState < 2 || video.videoWidth === 0 || video.videoHeight === 0) {
+      console.log("Video not ready:", { 
+        readyState: video.readyState, 
+        videoWidth: video.videoWidth, 
+        videoHeight: video.videoHeight 
+      });
+      if (!silent) toast.error("Video no está listo. Espera un momento.");
+      return;
+    }
 
     setIsAnalyzing(true);
+    console.log("Starting analysis...");
 
     try {
-      const video = videoRef.current;
       const canvas = canvasRef.current;
       const ctx = canvas.getContext("2d");
 
@@ -141,6 +163,7 @@ export default function VisionAnalysis() {
       // Set canvas size to match video
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
+      console.log("Canvas size:", canvas.width, "x", canvas.height);
 
       // Draw current frame
       ctx.drawImage(video, 0, 0);
@@ -148,6 +171,11 @@ export default function VisionAnalysis() {
       // Convert to base64
       const imageData = canvas.toDataURL("image/jpeg", 0.7);
       const base64 = imageData.split(",")[1];
+      console.log("Image captured, base64 length:", base64?.length);
+
+      if (!base64 || base64.length < 1000) {
+        throw new Error("Imagen capturada muy pequeña o vacía");
+      }
 
       // Get auth session
       const { data: { session } } = await supabase.auth.getSession();
@@ -157,6 +185,8 @@ export default function VisionAnalysis() {
         return;
       }
 
+      console.log("Calling analyze-form edge function...");
+      
       // Call analyze-form function
       const { data, error } = await supabase.functions.invoke("analyze-form", {
         body: { imageBase64: base64, exerciseName, detailed: true },
@@ -165,8 +195,16 @@ export default function VisionAnalysis() {
         }
       });
 
-      if (error) throw error;
-      if (data.error) throw new Error(data.error);
+      console.log("Edge function response:", { data, error });
+
+      if (error) {
+        console.error("Edge function error:", error);
+        throw error;
+      }
+      if (data?.error) {
+        console.error("Data error:", data.error);
+        throw new Error(data.error);
+      }
 
       // Add default bodyPoints if not present
       const analysisWithPoints: FormAnalysis = {
@@ -176,6 +214,7 @@ export default function VisionAnalysis() {
 
       setAnalysis(analysisWithPoints);
       setAnalysisCount(prev => prev + 1);
+      console.log("Analysis complete:", analysisWithPoints.overallScore);
       
       // Speak the main issue if there's a warning or error (avoid repeating)
       const mainIssue = data.issues?.find((i: FormIssue) => i.severity === "error");
@@ -186,7 +225,7 @@ export default function VisionAnalysis() {
 
     } catch (error) {
       console.error("Analysis error:", error);
-      if (!silent) toast.error("Error al analizar");
+      if (!silent) toast.error(error instanceof Error ? error.message : "Error al analizar");
     } finally {
       setIsAnalyzing(false);
     }
