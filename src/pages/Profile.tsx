@@ -29,6 +29,7 @@ interface Profile {
   streak_days: number;
   total_xp: number;
   experience_level: string | null;
+  goal: string | null;
 }
 
 const coachPersonalities = [
@@ -101,7 +102,15 @@ export default function Profile() {
     intermediate: "Intermedio",
     advanced: "Avanzado",
     elite: "Elite",
-  }[profile?.experience_level || "beginner"] || "Principiante";
+  }[profile?.experience_level || ""] || "Sin definir";
+  
+  const goalLabel = {
+    lose_fat: "Perder grasa",
+    build_muscle: "Ganar músculo",
+    strength: "Ganar fuerza",
+    endurance: "Resistencia",
+    maintain: "Mantenimiento",
+  }[profile?.goal || ""] || "Sin definir";
 
   return (
     <MobileFrame>
@@ -158,13 +167,18 @@ export default function Profile() {
             <div className="w-px bg-border" />
             <div className="text-center">
               <p className="text-2xl font-bold">{profile?.streak_days || 0}</p>
-              <p className="text-xs text-muted-foreground">Racha Actual</p>
+              <p className="text-xs text-muted-foreground">Racha</p>
             </div>
-            <div className="w-px bg-border" />
-            <div className="text-center">
-              <p className="text-2xl font-bold">4.8</p>
-              <p className="text-xs text-muted-foreground">Promedio IA</p>
-            </div>
+          </div>
+
+          {/* Goal and Level Badges */}
+          <div className="flex gap-2 mt-4">
+            <span className="px-3 py-1 bg-primary/20 text-primary rounded-full text-xs font-semibold">
+              🎯 {goalLabel}
+            </span>
+            <span className="px-3 py-1 bg-secondary/20 text-secondary rounded-full text-xs font-semibold">
+              💪 {experienceLabel}
+            </span>
           </div>
         </motion.section>
 
