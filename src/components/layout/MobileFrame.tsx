@@ -9,11 +9,11 @@ interface MobileFrameProps {
 export const MobileFrame = forwardRef<HTMLDivElement, MobileFrameProps>(
   ({ children, className }, ref) => {
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-0 md:p-4">
+      <div className="min-h-screen bg-background flex items-center justify-center p-0 md:p-4">
         <div
           ref={ref}
           className={cn(
-            "relative w-full max-w-md bg-background min-h-screen md:min-h-0 md:h-[844px] shadow-2xl overflow-hidden md:border-4 md:border-slate-800 md:rounded-[3rem] flex flex-col",
+            "relative w-full max-w-md bg-background min-h-screen md:min-h-0 md:h-[844px] shadow-2xl overflow-hidden md:border-2 md:border-border md:rounded-[3rem] flex flex-col",
             className
           )}
         >

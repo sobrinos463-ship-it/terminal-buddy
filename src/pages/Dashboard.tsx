@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Bell, Play, Flame, Trophy, TrendingUp, Calendar, Sparkles, Loader2, RefreshCw } from "lucide-react";
+import { Bell, Play, Flame, Trophy, TrendingUp, Calendar, Sparkles, Loader2, RefreshCw, Zap, Target } from "lucide-react";
 import { MobileFrame, MobileContent } from "@/components/layout/MobileFrame";
 import { BottomNav } from "@/components/layout/BottomNav";
 import { GlassCard } from "@/components/ui/GlassCard";
@@ -32,9 +32,9 @@ interface WeeklySession {
 }
 
 const quickActions = [
-  { icon: Play, label: "Iniciar Entreno", color: "bg-primary", path: "/training" },
-  { icon: Calendar, label: "Mi Plan", color: "bg-secondary", path: "/chat" },
-  { icon: TrendingUp, label: "Progreso", color: "bg-accent", path: "/summary" },
+  { icon: Play, label: "Entrenar", gradient: "from-primary to-accent", path: "/training" },
+  { icon: Target, label: "Mi Plan", gradient: "from-secondary to-ember-500", path: "/chat" },
+  { icon: TrendingUp, label: "Progreso", gradient: "from-amber-500 to-fire-500", path: "/summary" },
 ];
 
 export default function Dashboard() {
@@ -52,7 +52,6 @@ export default function Dashboard() {
     const fetchData = async () => {
       if (!user) return;
       
-      // Fetch profile
       const { data: profileData, error: profileError } = await supabase
         .from("profiles")
         .select("*")
@@ -65,7 +64,6 @@ export default function Dashboard() {
         setProfile(profileData);
       }
 
-      // Fetch active routine
       const { data: routines, error: routineError } = await supabase
         .from("workout_routines")
         .select(`
@@ -83,7 +81,6 @@ export default function Dashboard() {
         setRoutine(routines[0]);
       }
 
-      // Fetch sessions for the week
       const weekAgo = new Date();
       weekAgo.setDate(weekAgo.getDate() - 7);
       
@@ -103,7 +100,6 @@ export default function Dashboard() {
         setLastSessionDays(diffDays);
       }
 
-      // Get total sessions count for progress
       const { count } = await supabase
         .from("workout_sessions")
         .select("*", { count: "exact", head: true })
@@ -111,14 +107,12 @@ export default function Dashboard() {
         .not("completed_at", "is", null);
       
       setTotalSessions(count || 0);
-
       setIsLoading(false);
     };
 
     fetchData();
   }, [user]);
 
-  // Generate smart AI insight message
   const getAIInsight = () => {
     const firstName = profile?.full_name?.split(" ")[0] || "máquina";
     const streak = profile?.streak_days || 0;
@@ -177,16 +171,21 @@ export default function Dashboard() {
 
   const getGreeting = () => {
     const hour = new Date().getHours();
-    if (hour < 12) return "¡Buenos días!";
-    if (hour < 18) return "¡Buenas tardes!";
-    return "¡Buenas noches!";
+    if (hour < 12) return "Buenos días";
+    if (hour < 18) return "Buenas tardes";
+    return "Buenas noches";
   };
 
   if (isLoading) {
     return (
       <MobileFrame>
         <div className="flex-1 flex items-center justify-center">
-          <Loader2 className="w-8 h-8 animate-spin text-primary" />
+          <div className="flex flex-col items-center gap-4">
+            <div className="w-12 h-12 rounded-full bg-primary/20 flex items-center justify-center animate-pulse-ai">
+              <Flame className="w-6 h-6 text-primary" />
+            </div>
+            <span className="text-muted-foreground text-sm">Cargando...</span>
+          </div>
         </div>
       </MobileFrame>
     );
@@ -195,21 +194,21 @@ export default function Dashboard() {
   return (
     <MobileFrame>
       {/* Header */}
-      <header className="glass-panel sticky top-0 z-20 p-6 flex justify-between items-center border-b border-white/10">
+      <header className="glass-panel sticky top-0 z-20 px-5 py-4 flex justify-between items-center border-b border-white/5">
         <div className="flex flex-col">
-          <span className="text-muted-foreground text-sm font-medium">
+          <span className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
             {getGreeting()}
           </span>
-          <h1 className="text-2xl font-bold">{firstName}</h1>
+          <h1 className="text-xl font-display font-bold gradient-text-fire">{firstName}</h1>
         </div>
-        <div className="flex items-center gap-4">
-          <button className="relative text-muted-foreground hover:text-foreground transition-colors">
-            <Bell className="w-6 h-6" />
-            <span className="absolute -top-1 -right-1 w-2 h-2 bg-secondary rounded-full" />
+        <div className="flex items-center gap-3">
+          <button className="relative w-10 h-10 rounded-xl bg-muted/50 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-all">
+            <Bell className="w-5 h-5" />
+            <span className="absolute top-2 right-2 w-2 h-2 bg-primary rounded-full animate-pulse" />
           </button>
           <button
             onClick={() => navigate("/profile")}
-            className="w-10 h-10 rounded-full border-2 border-secondary/30 overflow-hidden"
+            className="w-10 h-10 rounded-xl border-2 border-primary/30 overflow-hidden hover:border-primary/60 transition-all"
           >
             {profile?.avatar_url ? (
               <img
@@ -228,51 +227,57 @@ export default function Dashboard() {
         </div>
       </header>
 
-      <MobileContent className="p-6 pb-24 space-y-6">
-        {/* AI Insight Card */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-        >
-          <GlassCard className="relative overflow-hidden">
-            <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-secondary/20 to-transparent rounded-full blur-2xl" />
-            <div className="flex items-start gap-4">
-              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-secondary to-indigo-600 flex items-center justify-center animate-pulse-ai">
-                <Sparkles className="w-6 h-6 text-secondary-foreground" />
-              </div>
-              <div className="flex-1">
-                <p className="text-xs text-secondary font-semibold uppercase tracking-wide mb-1">
-                  Coach IA
-                </p>
-                <p className="text-sm text-foreground leading-relaxed">
-                  {getAIInsight()}
-                </p>
-              </div>
-            </div>
-          </GlassCard>
-        </motion.div>
-
+      <MobileContent className="px-5 py-6 pb-28 space-y-6">
         {/* Stats Row */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
           className="grid grid-cols-3 gap-3"
         >
-          <GlassCard className="text-center">
-            <Flame className="w-6 h-6 text-orange-400 mx-auto mb-2" />
-            <p className="text-2xl font-bold">{profile?.streak_days || 0}</p>
-            <p className="text-xs text-muted-foreground">Racha</p>
-          </GlassCard>
-          <GlassCard className="text-center">
-            <Trophy className="w-6 h-6 text-yellow-400 mx-auto mb-2" />
-            <p className="text-2xl font-bold">{profile?.total_xp || 0}</p>
-            <p className="text-xs text-muted-foreground">XP Total</p>
-          </GlassCard>
-          <GlassCard className="text-center">
-            <TrendingUp className="w-6 h-6 text-primary mx-auto mb-2" />
-            <p className="text-2xl font-bold">{totalSessions}</p>
-            <p className="text-xs text-muted-foreground">Entrenos</p>
+          <div className="stat-card">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary/20 to-accent/10 flex items-center justify-center mx-auto mb-2">
+              <Flame className="w-5 h-5 text-primary animate-fire-flicker" />
+            </div>
+            <p className="text-2xl font-display font-bold">{profile?.streak_days || 0}</p>
+            <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Racha</p>
+          </div>
+          <div className="stat-card">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500/20 to-fire-500/10 flex items-center justify-center mx-auto mb-2">
+              <Zap className="w-5 h-5 text-amber-400" />
+            </div>
+            <p className="text-2xl font-display font-bold">{profile?.total_xp || 0}</p>
+            <p className="text-[10px] text-muted-foreground uppercase tracking-wider">XP</p>
+          </div>
+          <div className="stat-card">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-secondary/20 to-ember-500/10 flex items-center justify-center mx-auto mb-2">
+              <Trophy className="w-5 h-5 text-secondary" />
+            </div>
+            <p className="text-2xl font-display font-bold">{totalSessions}</p>
+            <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Entrenos</p>
+          </div>
+        </motion.div>
+
+        {/* AI Insight Card */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
+        >
+          <GlassCard className="relative overflow-hidden card-glow">
+            <div className="absolute -top-10 -right-10 w-32 h-32 bg-gradient-to-br from-primary/15 to-transparent rounded-full blur-2xl" />
+            <div className="flex items-start gap-4 relative z-10">
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-glow animate-pulse-ai flex-shrink-0">
+                <Sparkles className="w-6 h-6 text-primary-foreground" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[10px] text-primary font-semibold uppercase tracking-widest mb-1">
+                  Coach IA
+                </p>
+                <p className="text-sm text-foreground/90 leading-relaxed">
+                  {getAIInsight()}
+                </p>
+              </div>
+            </div>
           </GlassCard>
         </motion.div>
 
@@ -283,16 +288,16 @@ export default function Dashboard() {
           transition={{ delay: 0.2 }}
         >
           <div className="flex items-center justify-between mb-3">
-            <h2 className="font-bold text-lg">Entreno de Hoy</h2>
+            <h2 className="font-display font-bold text-lg">Entreno de Hoy</h2>
             <button 
               onClick={handleGenerateRoutine}
               disabled={generatingRoutine}
-              className="text-xs text-primary font-semibold flex items-center gap-1"
+              className="text-xs text-primary font-semibold flex items-center gap-1.5 hover:text-primary/80 transition-colors"
             >
               {generatingRoutine ? (
-                <Loader2 className="w-3 h-3 animate-spin" />
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
               ) : (
-                <RefreshCw className="w-3 h-3" />
+                <RefreshCw className="w-3.5 h-3.5" />
               )}
               Nueva rutina
             </button>
@@ -300,32 +305,35 @@ export default function Dashboard() {
           {routine ? (
             <GlassCard
               variant="elevated"
-              className="cursor-pointer hover:border-primary/50 transition-all"
+              className="cursor-pointer hover:border-primary/30 transition-all group"
               onClick={() => navigate("/training")}
             >
               <div className="flex items-center justify-between mb-4">
                 <div>
-                  <h3 className="font-bold text-lg">{routine.name}</h3>
+                  <h3 className="font-display font-bold text-lg group-hover:text-primary transition-colors">{routine.name}</h3>
                   <p className="text-sm text-muted-foreground">
                     {routine.routine_exercises?.length || 0} ejercicios • {routine.estimated_duration_minutes} min
                   </p>
                 </div>
-                <div className="px-3 py-1 bg-primary/20 text-primary rounded-full text-xs font-semibold">
+                <div className="px-3 py-1.5 bg-primary/10 text-primary rounded-lg text-xs font-semibold border border-primary/20">
                   {routine.target_muscle_groups?.[0] || 'Mixto'}
                 </div>
               </div>
-              <button className="w-full bg-primary text-primary-foreground font-bold py-3 rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-primary/30 hover:shadow-primary/50 transition-all">
+              <button className="w-full btn-primary-glow py-3.5 rounded-xl flex items-center justify-center gap-2 transition-all group-hover:shadow-glow-lg">
                 <Play className="w-5 h-5" />
-                Comenzar Sesión
+                <span className="font-semibold">Comenzar Sesión</span>
               </button>
             </GlassCard>
           ) : (
-            <GlassCard variant="elevated" className="text-center">
+            <GlassCard variant="elevated" className="text-center py-8">
+              <div className="w-16 h-16 rounded-2xl bg-muted/50 flex items-center justify-center mx-auto mb-4">
+                <Calendar className="w-8 h-8 text-muted-foreground" />
+              </div>
               <p className="text-muted-foreground mb-4">No tienes rutina activa</p>
               <button
                 onClick={handleGenerateRoutine}
                 disabled={generatingRoutine}
-                className="w-full bg-primary text-primary-foreground font-bold py-3 rounded-xl flex items-center justify-center gap-2"
+                className="btn-primary-glow px-6 py-3 rounded-xl flex items-center justify-center gap-2 mx-auto"
               >
                 {generatingRoutine ? (
                   <>
@@ -335,7 +343,7 @@ export default function Dashboard() {
                 ) : (
                   <>
                     <Sparkles className="w-5 h-5" />
-                    Generar Rutina con IA
+                    Generar con IA
                   </>
                 )}
               </button>
@@ -349,20 +357,20 @@ export default function Dashboard() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.3 }}
         >
-          <h2 className="font-bold text-lg mb-3">Acciones Rápidas</h2>
+          <h2 className="font-display font-bold text-lg mb-3">Acciones Rápidas</h2>
           <div className="grid grid-cols-3 gap-3">
             {quickActions.map((action) => (
               <GlassCard
                 key={action.label}
-                className="text-center cursor-pointer hover:border-white/20 transition-all"
+                className="text-center cursor-pointer hover:border-primary/20 transition-all group py-5"
                 onClick={() => navigate(action.path)}
               >
                 <div
-                  className={`w-12 h-12 ${action.color} rounded-2xl flex items-center justify-center mx-auto mb-2`}
+                  className={`w-12 h-12 bg-gradient-to-br ${action.gradient} rounded-2xl flex items-center justify-center mx-auto mb-3 shadow-glow-sm group-hover:shadow-glow transition-all`}
                 >
                   <action.icon className="w-6 h-6 text-primary-foreground" />
                 </div>
-                <p className="text-xs font-medium">{action.label}</p>
+                <p className="text-xs font-semibold">{action.label}</p>
               </GlassCard>
             ))}
           </div>
@@ -374,44 +382,41 @@ export default function Dashboard() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.4 }}
         >
-          <h2 className="font-bold text-lg mb-3">Esta Semana</h2>
-          <GlassCard>
-            <div className="flex justify-between items-end h-24">
+          <h2 className="font-display font-bold text-lg mb-3">Esta Semana</h2>
+          <GlassCard className="py-5">
+            <div className="flex justify-between items-end h-24 px-2">
               {["L", "M", "X", "J", "V", "S", "D"].map((day, i) => {
                 const today = new Date().getDay();
                 const dayIndex = today === 0 ? 6 : today - 1;
                 const isToday = i === dayIndex;
                 
-                // Calculate which date this day represents
                 const dayOffset = i - dayIndex;
                 const targetDate = new Date();
                 targetDate.setDate(targetDate.getDate() + dayOffset);
                 const targetDateStr = targetDate.toISOString().split('T')[0];
                 
-                // Check if there's a session on this day
                 const sessionOnDay = weekSessions.find(s => 
                   s.completed_at.split('T')[0] === targetDateStr
                 );
                 
-                // Calculate height based on duration (max 60 min = 100%)
                 const height = sessionOnDay 
-                  ? Math.min(100, Math.round((sessionOnDay.duration_seconds / 3600) * 100))
+                  ? Math.min(100, Math.max(20, Math.round((sessionOnDay.duration_seconds / 3600) * 100)))
                   : 0;
                 
                 return (
-                  <div key={day} className="flex flex-col items-center gap-2">
+                  <div key={day} className="flex flex-col items-center gap-2 flex-1">
                     <div
-                      className={`w-8 rounded-t-lg transition-all ${
+                      className={`w-6 rounded-lg transition-all ${
                         height > 0
                           ? isToday
-                            ? "bg-primary"
-                            : "bg-secondary/60"
-                          : "bg-muted"
+                            ? "bg-gradient-to-t from-primary to-accent shadow-glow-sm"
+                            : "bg-gradient-to-t from-secondary/60 to-ember-500/40"
+                          : "bg-muted/50"
                       }`}
                       style={{ height: `${height || 8}%` }}
                     />
                     <span
-                      className={`text-xs ${
+                      className={`text-[10px] font-medium ${
                         isToday ? "text-primary font-bold" : "text-muted-foreground"
                       }`}
                     >
