@@ -445,17 +445,25 @@ export default function Training() {
           <div className="flex items-center gap-2">
             <button
               onClick={() => {
-                setCoachEnabled(!coachEnabled);
-                if (audioRef.current) {
+                const newState = !coachEnabled;
+                setCoachEnabled(newState);
+                if (!newState && audioRef.current) {
                   audioRef.current.pause();
                   audioRef.current = null;
+                  setIsCoachSpeaking(false);
                 }
+                toast(newState ? "Coach activado" : "Coach silenciado", {
+                  icon: newState ? "🎙️" : "🔇",
+                  duration: 1500,
+                });
               }}
-              className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors ${
-                coachEnabled ? "bg-secondary/20 text-secondary" : "bg-muted text-muted-foreground"
+              className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${
+                coachEnabled 
+                  ? "bg-gradient-to-br from-primary/20 to-accent/10 text-primary shadow-glow-sm" 
+                  : "bg-muted/50 text-muted-foreground"
               }`}
             >
-              {coachEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+              {coachEnabled ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
             </button>
             <button
               onClick={handleFinishWorkout}

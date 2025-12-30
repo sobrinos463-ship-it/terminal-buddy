@@ -5,8 +5,8 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-// Voice: Brian - energetic male voice great for coaching
-const VOICE_ID = "nPczCjzI2devNBz1zQrb";
+// Voice: Eric - dynamic energetic male voice, perfect for gym coaching
+const VOICE_ID = "cjVigY5qzO86Huf0OWal";
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -40,11 +40,11 @@ serve(async (req) => {
           text: trimmedText,
           model_id: "eleven_turbo_v2_5",
           voice_settings: {
-            stability: 0.5,
-            similarity_boost: 0.75,
-            style: 0.4,
+            stability: 0.4,
+            similarity_boost: 0.8,
+            style: 0.6,
             use_speaker_boost: true,
-            speed: 1.05,
+            speed: 1.1,
           },
         }),
       }
