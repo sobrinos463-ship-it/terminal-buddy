@@ -12,6 +12,7 @@ interface UserContext {
     experience_level: string | null;
     streak_days: number;
     total_xp: number;
+    created_at: string;
   } | null;
   currentRoutine: {
     name: string;
@@ -23,6 +24,12 @@ interface UserContext {
     duration_seconds: number;
     xp_earned: number;
   } | null;
+  recentSessions: {
+    completed_at: string;
+    duration_seconds: number;
+    xp_earned: number;
+  }[];
+  daysSinceGoalSet: number;
 }
 
 const buildSystemPrompt = (context: UserContext | null): string => {
@@ -47,12 +54,13 @@ const buildSystemPrompt = (context: UserContext | null): string => {
     const goal = goalLabels[context.profile.goal || ""] || "entrenar";
     const level = levelLabels[context.profile.experience_level || ""] || "intermedio";
     userInfo = `
-USUARIO ACTUAL:
+USUARIO:
 - Nombre: ${name}
 - Objetivo: ${goal}
 - Nivel: ${level}
 - Racha: ${context.profile.streak_days} días
-- XP acumulados: ${context.profile.total_xp}`;
+- XP: ${context.profile.total_xp}
+- Días con objetivo actual: ${context.daysSinceGoalSet}`;
   }
 
   let routineInfo = "";
@@ -62,42 +70,51 @@ USUARIO ACTUAL:
       .join(", ");
     routineInfo = `
 RUTINA ACTIVA:
-- Nombre: ${context.currentRoutine.name}
+- ${context.currentRoutine.name}
 - Músculos: ${context.currentRoutine.target_muscle_groups.join(", ")}
 - Ejercicios: ${exercises}`;
   }
 
   let sessionInfo = "";
   if (context?.lastSession) {
-    const date = new Date(context.lastSession.completed_at).toLocaleDateString("es-ES");
+    const lastDate = new Date(context.lastSession.completed_at);
+    const daysSinceLast = Math.floor((Date.now() - lastDate.getTime()) / (1000 * 60 * 60 * 24));
     const mins = Math.floor(context.lastSession.duration_seconds / 60);
     sessionInfo = `
-ÚLTIMA SESIÓN:
-- Fecha: ${date}
-- Duración: ${mins} minutos
-- XP ganados: ${context.lastSession.xp_earned}`;
+ÚLTIMO ENTRENAMIENTO:
+- Hace ${daysSinceLast} día(s)
+- Duró ${mins} min
+- ${context.lastSession.xp_earned} XP`;
   }
 
-  return `Eres un coach de fitness. Conoces al usuario y su contexto.
-${userInfo}
-${routineInfo}
-${sessionInfo}
+  let weeklyInfo = "";
+  if (context?.recentSessions && context.recentSessions.length > 0) {
+    const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    const thisWeek = context.recentSessions.filter(s => new Date(s.completed_at).getTime() > weekAgo);
+    const totalMins = thisWeek.reduce((acc, s) => acc + (s.duration_seconds || 0), 0) / 60;
+    weeklyInfo = `
+ESTA SEMANA:
+- ${thisWeek.length} entrenamientos
+- ${Math.round(totalMins)} min totales`;
+  }
 
-REGLAS ESTRICTAS:
-1. Respuestas CORTAS (máximo 2-3 frases)
-2. Sin emojis excesivos (máximo 1 por mensaje)
-3. Directo al grano, sin rodeos
-4. Usa el nombre del usuario cuando sea natural
-5. Responde SOLO lo que pregunta, nada más
-6. Si mencionan entrenar, guíalos a su rutina actual
-7. Si piden cambiar objetivo, sugiéreles ir a Perfil
-8. Habla como un amigo del gym, no como un robot
+  // Check if should suggest goal review (after 60+ days)
+  const shouldSuggestGoalReview = context?.daysSinceGoalSet && context.daysSinceGoalSet >= 60;
 
-PROHIBIDO:
-- Respuestas largas
-- Explicaciones innecesarias
-- Repetir información que el usuario ya sabe
-- Usar muchos emojis o signos de exclamación`;
+  return `Eres el coach de fitness de ${context?.profile?.full_name?.split(" ")[0] || "un usuario"}.
+${userInfo}${routineInfo}${sessionInfo}${weeklyInfo}
+
+REGLAS:
+1. Respuestas CORTAS (1-2 frases máximo)
+2. Sin emojis excesivos (máximo 1)
+3. Usa su nombre de vez en cuando
+4. Solo responde lo que pregunta
+5. Si quiere entrenar → guíalo a su rutina
+6. Si quiere cambiar objetivo → sugiérele ir a Perfil
+7. Habla natural, como un amigo del gym
+${shouldSuggestGoalReview ? `8. Si es relevante, sugiere revisar su objetivo ya que lleva ${context?.daysSinceGoalSet} días con el mismo` : ""}
+
+PROHIBIDO: respuestas largas, explicaciones innecesarias, repetir info, muchos emojis.`;
 };
 
 serve(async (req) => {

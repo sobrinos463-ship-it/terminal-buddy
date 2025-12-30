@@ -23,6 +23,7 @@ interface UserContext {
     experience_level: string | null;
     streak_days: number;
     total_xp: number;
+    created_at: string;
   } | null;
   currentRoutine: {
     name: string;
@@ -34,6 +35,12 @@ interface UserContext {
     duration_seconds: number;
     xp_earned: number;
   } | null;
+  recentSessions: {
+    completed_at: string;
+    duration_seconds: number;
+    xp_earned: number;
+  }[];
+  daysSinceGoalSet: number;
 }
 
 const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-coach`;
@@ -69,7 +76,7 @@ export default function Chat() {
         // Get profile
         const { data: profile } = await supabase
           .from("profiles")
-          .select("full_name, goal, experience_level, streak_days, total_xp")
+          .select("full_name, goal, experience_level, streak_days, total_xp, created_at, updated_at")
           .eq("user_id", user.id)
           .maybeSingle();
 
@@ -86,23 +93,38 @@ export default function Chat() {
           .order("created_at", { ascending: false })
           .limit(1);
 
-        // Get last workout session
+        // Get recent workout sessions (last 7 days)
         const { data: sessions } = await supabase
           .from("workout_sessions")
           .select("completed_at, duration_seconds, xp_earned")
           .eq("user_id", user.id)
           .not("completed_at", "is", null)
           .order("completed_at", { ascending: false })
-          .limit(1);
+          .limit(10);
+
+        // Calculate days since goal was set
+        const goalSetDate = profile?.updated_at || profile?.created_at;
+        const daysSinceGoalSet = goalSetDate 
+          ? Math.floor((Date.now() - new Date(goalSetDate).getTime()) / (1000 * 60 * 60 * 24))
+          : 0;
 
         const context: UserContext = {
-          profile: profile || null,
+          profile: profile ? {
+            full_name: profile.full_name,
+            goal: profile.goal,
+            experience_level: profile.experience_level,
+            streak_days: profile.streak_days || 0,
+            total_xp: profile.total_xp || 0,
+            created_at: profile.created_at
+          } : null,
           currentRoutine: routines && routines[0] ? {
             name: routines[0].name,
             target_muscle_groups: routines[0].target_muscle_groups,
             exercises: routines[0].routine_exercises || []
           } : null,
-          lastSession: sessions && sessions[0] ? sessions[0] : null
+          lastSession: sessions && sessions[0] ? sessions[0] : null,
+          recentSessions: sessions || [],
+          daysSinceGoalSet
         };
 
         setUserContext(context);
