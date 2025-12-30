@@ -388,7 +388,7 @@ export default function Training() {
                   <h2 className="text-xl font-bold">{currentExercise.name}</h2>
                 </div>
                 <button
-                  onClick={() => navigate("/vision")}
+                  onClick={() => navigate("/vision", { state: { exerciseName: currentExercise.name } })}
                   className="px-3 py-2 bg-accent/20 text-accent rounded-xl text-xs font-semibold flex items-center gap-1"
                 >
                   <span>👁️</span> Visión IA
