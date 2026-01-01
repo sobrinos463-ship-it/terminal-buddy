@@ -97,6 +97,8 @@ export default function Training() {
   const [currentWeight, setCurrentWeight] = useState<string>("0");
   const [coachEnabled, setCoachEnabled] = useState(true);
   const [isCoachSpeaking, setIsCoachSpeaking] = useState(false);
+  const [showRestChoice, setShowRestChoice] = useState(false);
+  const [pendingRestSeconds, setPendingRestSeconds] = useState(0);
   const lastSpokenRef = useRef<string>("");
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -270,7 +272,9 @@ export default function Training() {
     if (currentSet < currentExercise.sets) {
       speakCoach(getRandomPhrase("setComplete"));
       setCurrentSet(currentSet + 1);
-      setRestTimer(currentExercise.rest_seconds);
+      // Show choice modal instead of auto-starting rest
+      setPendingRestSeconds(currentExercise.rest_seconds);
+      setShowRestChoice(true);
     } else {
       // Exercise completed
       speakCoach(getRandomPhrase("exerciseComplete"));
@@ -279,12 +283,25 @@ export default function Training() {
       if (currentExerciseIndex < totalExercises - 1) {
         setCurrentExerciseIndex(currentExerciseIndex + 1);
         setCurrentSet(1);
-        setRestTimer(currentExercise.rest_seconds);
+        // Show choice modal for next exercise
+        setPendingRestSeconds(currentExercise.rest_seconds);
+        setShowRestChoice(true);
       } else {
         // Workout complete
         handleFinishWorkout();
       }
     }
+  };
+
+  const handleChooseRest = () => {
+    setShowRestChoice(false);
+    speakCoach(getRandomPhrase("restStart"));
+    setRestTimer(pendingRestSeconds);
+  };
+
+  const handleChooseContinue = () => {
+    setShowRestChoice(false);
+    // Continue immediately without rest
   };
 
   const handleFinishWorkout = async () => {
@@ -497,6 +514,42 @@ export default function Training() {
 
       <MobileContent className="p-4 pb-32 space-y-4">
         {/* Rest Timer Overlay */}
+        {/* Rest Choice Modal */}
+        <AnimatePresence>
+          {showRestChoice && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+            >
+              <GlassCard className="text-center border-primary/50">
+                <CheckCircle className="w-10 h-10 text-primary mx-auto mb-3" />
+                <p className="text-lg font-bold mb-1">¡Set completado!</p>
+                <p className="text-sm text-muted-foreground mb-4">
+                  ¿Quieres descansar {pendingRestSeconds}s o seguir?
+                </p>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    onClick={handleChooseRest}
+                    className="py-3 bg-muted/80 text-foreground rounded-xl font-semibold flex items-center justify-center gap-2 border border-border"
+                  >
+                    <Timer className="w-5 h-5" />
+                    Descansar
+                  </button>
+                  <button
+                    onClick={handleChooseContinue}
+                    className="py-3 bg-gradient-to-r from-primary to-accent text-primary-foreground rounded-xl font-semibold flex items-center justify-center gap-2 shadow-glow"
+                  >
+                    <Play className="w-5 h-5" />
+                    Seguir
+                  </button>
+                </div>
+              </GlassCard>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Rest Timer Overlay */}
         <AnimatePresence>
           {restTimer !== null && (
             <motion.div
@@ -522,7 +575,7 @@ export default function Training() {
         </AnimatePresence>
 
         {/* Current Exercise */}
-        {!restTimer && currentExercise && (
+        {!restTimer && !showRestChoice && currentExercise && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
