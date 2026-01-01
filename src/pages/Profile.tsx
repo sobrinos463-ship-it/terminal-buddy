@@ -24,6 +24,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { EditGoalModal } from "@/components/EditGoalModal";
+import { NotificationSettings } from "@/components/NotificationSettings";
 
 interface Profile {
   full_name: string | null;
@@ -227,6 +228,19 @@ export default function Profile() {
               </GlassCard>
             ))}
           </div>
+        </motion.section>
+
+        {/* Notification Settings */}
+        <motion.section
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.15 }}
+        >
+          <div className="flex items-center gap-2 mb-4">
+            <Bell className="w-5 h-5 text-primary" />
+            <h3 className="font-bold">Recordatorios del Coach</h3>
+          </div>
+          <NotificationSettings />
         </motion.section>
 
         {/* Settings Menu */}
