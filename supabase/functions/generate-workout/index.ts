@@ -65,8 +65,9 @@ serve(async (req) => {
 
     const goal = profile?.goal ? (goalMapping[profile.goal] || profile.goal) : "ganar masa muscular";
     const experienceLevel = profile?.experience_level ? (levelMapping[profile.experience_level] || profile.experience_level) : "intermedio";
+    const userWeight = profile?.weight_kg || 70; // Default to 70kg if not set
 
-    console.log(`Generating workout for user ${user.id}, goal: ${goal}, level: ${experienceLevel}`);
+    console.log(`Generating workout for user ${user.id}, goal: ${goal}, level: ${experienceLevel}, weight: ${userWeight}kg`);
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) {
@@ -74,19 +75,61 @@ serve(async (req) => {
       throw new Error("LOVABLE_API_KEY is not configured");
     }
 
+    // Define rep ranges based on goal
+    const repRanges: Record<string, string> = {
+      "perder grasa corporal": "12-15 reps (volumen alto, peso moderado)",
+      "ganar masa muscular": "8-12 reps (hipertrofia)",
+      "ganar fuerza": "4-6 reps (peso alto)",
+      "mejorar resistencia cardiovascular": "15-20 reps (peso ligero)",
+      "mantener forma física actual": "10-12 reps (peso moderado)"
+    };
+
+    // Weight multipliers based on experience level (as percentage of body weight for compound movements)
+    const weightGuide: Record<string, string> = {
+      "principiante": `Pesos BAJOS para aprender técnica. Press banca: 15-25kg, Sentadilla: 15-30kg, Peso muerto: 20-30kg, Mancuernas: 4-8kg`,
+      "intermedio": `Pesos MODERADOS. Press banca: 40-60kg, Sentadilla: 50-80kg, Peso muerto: 60-90kg, Mancuernas: 10-16kg`,
+      "avanzado": `Pesos ALTOS. Press banca: 70-100kg, Sentadilla: 90-120kg, Peso muerto: 100-140kg, Mancuernas: 16-24kg`,
+      "elite": `Pesos MUY ALTOS. Press banca: 100-140kg, Sentadilla: 140-180kg, Peso muerto: 160-200kg, Mancuernas: 24-36kg`
+    };
+
     const systemPrompt = `Eres un entrenador personal experto. Genera rutinas de entrenamiento personalizadas en español.
-El usuario tiene el objetivo de "${goal}" y su nivel de experiencia es "${experienceLevel}".
-Debes generar una rutina de entrenamiento adaptada a su perfil.`;
 
-    const userPrompt = `Genera una rutina de entrenamiento para hoy. La rutina debe incluir:
-- Un nombre descriptivo para la rutina en español
-- Una breve descripción motivadora
-- Los grupos musculares objetivo (en español, ej: "Pecho", "Espalda", "Piernas")
-- Un estimado de duración en minutos (entre 30 y 60)
-- Una lista de 4-6 ejercicios con: nombre del ejercicio, número de sets (3-5), reps (texto como "8-12" o "10"), peso sugerido (texto como "20kg" o "Sin peso"), tiempo de descanso en segundos (60-120), y notas opcionales.
+DATOS DEL USUARIO:
+- Objetivo: ${goal}
+- Nivel: ${experienceLevel}
+- Peso corporal: ${userWeight}kg
 
-Nivel del usuario: ${experienceLevel}
-Objetivo: ${goal}`;
+GUÍA DE PESOS SEGÚN NIVEL (${experienceLevel}):
+${weightGuide[experienceLevel] || weightGuide["intermedio"]}
+
+GUÍA DE REPETICIONES SEGÚN OBJETIVO (${goal}):
+${repRanges[goal] || repRanges["ganar masa muscular"]}
+
+REGLAS CRÍTICAS:
+1. Los pesos DEBEN ser REALISTAS para el nivel del usuario
+2. NUNCA sugieras más de 100kg para principiantes
+3. El peso sugerido debe ser un rango razonable (ej: "20-30kg", "15kg", "Sin peso")
+4. Para ejercicios con peso corporal: "Sin peso" o "Peso corporal"
+5. Las reps deben coincidir con el objetivo del usuario`;
+
+    const userPrompt = `Genera una rutina de entrenamiento para hoy.
+
+IMPORTANTE: 
+- El usuario pesa ${userWeight}kg y es nivel ${experienceLevel}
+- Objetivo: ${goal}
+- Reps recomendadas: ${repRanges[goal] || "8-12"}
+
+La rutina debe incluir:
+- Nombre descriptivo en español
+- Descripción motivadora breve
+- Grupos musculares objetivo
+- Duración estimada (30-60 min)
+- 4-6 ejercicios con pesos REALISTAS para un ${experienceLevel}
+
+EJEMPLOS DE PESO CORRECTO para ${experienceLevel}:
+- Press de banca: ${experienceLevel === "principiante" ? "20-30kg" : experienceLevel === "intermedio" ? "50-70kg" : "80-100kg"}
+- Sentadilla: ${experienceLevel === "principiante" ? "20-40kg" : experienceLevel === "intermedio" ? "60-90kg" : "100-130kg"}
+- Curl de bíceps: ${experienceLevel === "principiante" ? "6-10kg" : experienceLevel === "intermedio" ? "12-18kg" : "18-25kg"}`;
 
     console.log("Sending request to AI gateway...");
 
