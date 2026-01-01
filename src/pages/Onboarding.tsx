@@ -12,12 +12,15 @@ interface Message {
   type: "ai" | "user";
   content: string;
   options?: string[];
+  inputType?: "weight" | "height";
 }
 
 interface OnboardingData {
   goal: string | null;
   experience_level: string | null;
   training_days: string | null;
+  weight_kg: number | null;
+  height_cm: number | null;
 }
 
 const goalMap: Record<string, string> = {
@@ -44,8 +47,8 @@ const initialMessages: Message[] = [
   {
     id: 2,
     type: "ai",
-    content: "¿Cuál es tu objetivo principal?",
-    options: ["Perder grasa", "Ganar músculo", "Ganar fuerza", "Mejorar resistencia"],
+    content: "Primero, ¿cuánto pesas? (en kg)",
+    inputType: "weight",
   },
 ];
 
@@ -54,14 +57,17 @@ export default function Onboarding() {
   const { user } = useAuth();
   const { toast } = useToast();
   const [messages, setMessages] = useState<Message[]>(initialMessages);
-  const [progress, setProgress] = useState(25);
+  const [progress, setProgress] = useState(15);
   const [inputValue, setInputValue] = useState("");
+  const [currentInputType, setCurrentInputType] = useState<"weight" | "height" | null>("weight");
   const [isTyping, setIsTyping] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [onboardingData, setOnboardingData] = useState<OnboardingData>({
     goal: null,
     experience_level: null,
     training_days: null,
+    weight_kg: null,
+    height_cm: null,
   });
   const [questionIndex, setQuestionIndex] = useState(0);
 
@@ -77,6 +83,8 @@ export default function Onboarding() {
       const updateData = {
         goal: data.goal,
         experience_level: data.experience_level,
+        weight_kg: data.weight_kg,
+        height_cm: data.height_cm,
       };
       console.log("Update payload:", updateData, "User ID:", user.id);
       
@@ -123,22 +131,35 @@ export default function Onboarding() {
     // Update onboarding data based on question index
     const newData = { ...onboardingData };
     if (questionIndex === 0) {
-      newData.goal = goalMap[option] || option.toLowerCase().replace(/\s+/g, '_');
+      // Weight
+      newData.weight_kg = parseInt(option) || 70;
     } else if (questionIndex === 1) {
-      newData.training_days = option;
+      // Height
+      newData.height_cm = parseInt(option) || 170;
     } else if (questionIndex === 2) {
+      // Goal
+      newData.goal = goalMap[option] || option.toLowerCase().replace(/\s+/g, '_');
+    } else if (questionIndex === 3) {
+      // Training days
+      newData.training_days = option;
+    } else if (questionIndex === 4) {
+      // Experience level
       newData.experience_level = levelMap[option] || "beginner";
     }
     setOnboardingData(newData);
     setQuestionIndex(questionIndex + 1);
+    setCurrentInputType(null);
     console.log("Onboarding data updated:", newData, "Question:", questionIndex + 1);
-    setProgress(Math.min(progress + 25, 100));
+    setProgress(Math.min(15 + (questionIndex + 1) * 17, 100));
 
     setTimeout(() => {
       setIsTyping(false);
       const nextQuestion = getNextQuestion(questionIndex + 1, newData);
       if (nextQuestion) {
         setMessages((prev) => [...prev, nextQuestion]);
+        if (nextQuestion.inputType) {
+          setCurrentInputType(nextQuestion.inputType);
+        }
       }
     }, 1200);
   };
@@ -148,7 +169,19 @@ export default function Onboarding() {
       {
         id: messages.length + 2,
         type: "ai",
-        content: "Perfecto. ¿Cuántos días a la semana puedes entrenar?",
+        content: "Bien. ¿Cuánto mides? (en cm)",
+        inputType: "height",
+      },
+      {
+        id: messages.length + 2,
+        type: "ai",
+        content: "Perfecto. ¿Cuál es tu objetivo principal?",
+        options: ["Perder grasa", "Ganar músculo", "Ganar fuerza", "Mejorar resistencia"],
+      },
+      {
+        id: messages.length + 2,
+        type: "ai",
+        content: "¿Cuántos días a la semana puedes entrenar?",
         options: ["2-3 días", "4-5 días", "6+ días"],
       },
       {
@@ -160,7 +193,7 @@ export default function Onboarding() {
       {
         id: messages.length + 2,
         type: "ai",
-        content: "¡Brutal! Ya tengo todo lo que necesito. Voy a crear tu plan personalizado ahora mismo. 🔥",
+        content: `¡Brutal! ${data.weight_kg}kg, ${data.height_cm}cm, nivel ${data.experience_level}. Ya tengo todo. Voy a crear tu plan personalizado. 🔥`,
       },
     ];
 
@@ -174,10 +207,10 @@ export default function Onboarding() {
       console.log("All questions answered, saving profile with data:", data);
       // Save profile after showing the final message
       setTimeout(() => {
-        if (data.goal && data.experience_level) {
+        if (data.goal && data.experience_level && data.weight_kg) {
           saveProfile(data);
         } else {
-          console.error("Missing goal or experience_level in data:", data);
+          console.error("Missing required data:", data);
           toast({
             variant: "destructive",
             title: "Error",
@@ -185,7 +218,7 @@ export default function Onboarding() {
           });
         }
       }, 2000);
-      return questions[2]; // Show final message
+      return questions[4]; // Show final message
     }
     
     return null;
@@ -193,6 +226,22 @@ export default function Onboarding() {
 
   const handleSend = () => {
     if (!inputValue.trim()) return;
+    
+    // Validate numeric input for weight/height
+    if (currentInputType === "weight" || currentInputType === "height") {
+      const num = parseInt(inputValue);
+      if (isNaN(num) || num < 30 || num > 300) {
+        toast({
+          variant: "destructive",
+          title: "Valor inválido",
+          description: currentInputType === "weight" 
+            ? "Introduce un peso válido (30-300 kg)" 
+            : "Introduce una altura válida (100-250 cm)",
+        });
+        return;
+      }
+    }
+    
     handleOptionSelect(inputValue);
     setInputValue("");
   };
@@ -299,16 +348,27 @@ export default function Onboarding() {
 
       {/* Input Area */}
       <div className="absolute bottom-0 left-0 right-0 glass-panel border-t border-white/10 p-4">
-        <div className="flex gap-3">
+        <div className="flex gap-3 relative">
           <input
-            type="text"
+            type={currentInputType ? "number" : "text"}
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleSend()}
-            placeholder="Escribe tu respuesta..."
+            placeholder={
+              currentInputType === "weight" 
+                ? "Ej: 82" 
+                : currentInputType === "height" 
+                  ? "Ej: 185" 
+                  : "Escribe tu respuesta..."
+            }
             disabled={isSaving}
             className="flex-1 bg-muted/50 border border-white/10 rounded-xl px-4 py-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-secondary/50 disabled:opacity-50"
           />
+          {currentInputType && (
+            <span className="absolute right-20 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">
+              {currentInputType === "weight" ? "kg" : "cm"}
+            </span>
+          )}
           <button
             onClick={handleSend}
             disabled={isSaving}
