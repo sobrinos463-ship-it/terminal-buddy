@@ -65,6 +65,7 @@ export default function Training() {
   const [currentWeight, setCurrentWeight] = useState<string>("0");
   const [showRestChoice, setShowRestChoice] = useState(false);
   const [pendingRestSeconds, setPendingRestSeconds] = useState(0);
+  const [alreadyTrainedToday, setAlreadyTrainedToday] = useState(false);
 
   // Fetch active routine
   useEffect(() => {
@@ -72,6 +73,24 @@ export default function Training() {
       if (!user) return;
 
       try {
+        // Check if user already completed a workout today
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        
+        const { data: todaySession } = await supabase
+          .from('workout_sessions')
+          .select('id, completed_at')
+          .eq('user_id', user.id)
+          .not('completed_at', 'is', null)
+          .gte('completed_at', today.toISOString())
+          .limit(1);
+
+        if (todaySession && todaySession.length > 0) {
+          setAlreadyTrainedToday(true);
+          setLoading(false);
+          return;
+        }
+
         // Get most recent active routine
         const { data: routines, error } = await supabase
           .from('workout_routines')
@@ -293,6 +312,54 @@ export default function Training() {
       <MobileFrame>
         <MobileContent className="flex items-center justify-center">
           <Loader2 className="w-8 h-8 animate-spin text-primary" />
+        </MobileContent>
+      </MobileFrame>
+    );
+  }
+
+  // Already trained today - show rest screen
+  if (alreadyTrainedToday) {
+    return (
+      <MobileFrame>
+        <header className="glass-panel sticky top-0 z-20 p-4 border-b border-white/10">
+          <div className="flex items-center">
+            <button
+              onClick={() => navigate("/dashboard")}
+              className="p-2 hover:bg-muted rounded-full transition-colors"
+            >
+              <ChevronLeft className="w-6 h-6" />
+            </button>
+            <h1 className="text-lg font-bold ml-2">Entrenamiento</h1>
+          </div>
+        </header>
+        <MobileContent className="p-6 flex flex-col items-center justify-center text-center">
+          <motion.div
+            initial={{ scale: 0.8, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="w-24 h-24 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center mb-6 shadow-glow"
+          >
+            <CheckCircle className="w-12 h-12 text-primary-foreground" />
+          </motion.div>
+          <h2 className="text-2xl font-display font-bold gradient-text-fire mb-2">
+            ¡Ya entrenaste hoy!
+          </h2>
+          <p className="text-muted-foreground mb-6 max-w-xs">
+            Descansa y recupérate. La recuperación es clave para el progreso. Vuelve mañana.
+          </p>
+          <div className="flex gap-3">
+            <button
+              onClick={() => navigate("/dashboard")}
+              className="px-6 py-3 bg-primary text-primary-foreground rounded-xl font-semibold"
+            >
+              Volver al Inicio
+            </button>
+            <button
+              onClick={() => navigate("/summary")}
+              className="px-6 py-3 bg-muted text-foreground rounded-xl font-semibold border border-border"
+            >
+              Ver Resumen
+            </button>
+          </div>
         </MobileContent>
       </MobileFrame>
     );
