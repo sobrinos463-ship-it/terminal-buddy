@@ -144,6 +144,42 @@ export type Database = {
           },
         ]
       }
+      user_notifications: {
+        Row: {
+          created_at: string
+          id: string
+          last_notified_at: string | null
+          notifications_enabled: boolean | null
+          preferred_training_time: string | null
+          push_subscription: Json | null
+          training_days: string[] | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          last_notified_at?: string | null
+          notifications_enabled?: boolean | null
+          preferred_training_time?: string | null
+          push_subscription?: Json | null
+          training_days?: string[] | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          last_notified_at?: string | null
+          notifications_enabled?: boolean | null
+          preferred_training_time?: string | null
+          push_subscription?: Json | null
+          training_days?: string[] | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       workout_routines: {
         Row: {
           created_at: string

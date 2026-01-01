@@ -14,3 +14,9 @@ verify_jwt = false
 
 [functions.analyze-form]
 verify_jwt = true
+
+[functions.send-push]
+verify_jwt = false
+
+[functions.coach-reminder-cron]
+verify_jwt = false
