@@ -129,27 +129,28 @@ export default function Onboarding() {
     setIsTyping(true);
 
     // Update onboarding data based on question index
+    // Order: 0=weight, 1=height, 2=goal, 3=training_days, 4=experience
     const newData = { ...onboardingData };
     if (questionIndex === 0) {
-      // Weight
-      newData.weight_kg = parseInt(option) || 70;
+      // Weight - first question
+      newData.weight_kg = parseInt(option) || null;
     } else if (questionIndex === 1) {
-      // Height
-      newData.height_cm = parseInt(option) || 170;
+      // Height - second question
+      newData.height_cm = parseInt(option) || null;
     } else if (questionIndex === 2) {
-      // Goal
-      newData.goal = goalMap[option] || option.toLowerCase().replace(/\s+/g, '_');
+      // Goal - third question (options)
+      newData.goal = goalMap[option] || "maintain";
     } else if (questionIndex === 3) {
-      // Training days
+      // Training days - fourth question (options)
       newData.training_days = option;
     } else if (questionIndex === 4) {
-      // Experience level
+      // Experience level - fifth question (options)
       newData.experience_level = levelMap[option] || "beginner";
     }
     setOnboardingData(newData);
     setQuestionIndex(questionIndex + 1);
     setCurrentInputType(null);
-    console.log("Onboarding data updated:", newData, "Question:", questionIndex + 1);
+    console.log("Onboarding data updated:", newData, "Question index:", questionIndex, "->", questionIndex + 1);
     setProgress(Math.min(15 + (questionIndex + 1) * 17, 100));
 
     setTimeout(() => {
@@ -165,35 +166,41 @@ export default function Onboarding() {
   };
 
   const getNextQuestion = (index: number, data: OnboardingData): Message | null => {
+    // Map experience level to Spanish for display
+    const experienceLabels: Record<string, string> = {
+      beginner: "Principiante",
+      intermediate: "Intermedio",
+      advanced: "Avanzado",
+    };
+    
     const questions: Message[] = [
+      // index 0 -> after weight, ask height
       {
         id: messages.length + 2,
         type: "ai",
         content: "Bien. ¿Cuánto mides? (en cm)",
         inputType: "height",
       },
+      // index 1 -> after height, ask goal
       {
         id: messages.length + 2,
         type: "ai",
         content: "Perfecto. ¿Cuál es tu objetivo principal?",
         options: ["Perder grasa", "Ganar músculo", "Ganar fuerza", "Mejorar resistencia"],
       },
+      // index 2 -> after goal, ask training days
       {
         id: messages.length + 2,
         type: "ai",
         content: "¿Cuántos días a la semana puedes entrenar?",
         options: ["2-3 días", "4-5 días", "6+ días"],
       },
+      // index 3 -> after training days, ask experience
       {
         id: messages.length + 2,
         type: "ai",
         content: "¿Cuál es tu nivel de experiencia en el gimnasio?",
         options: ["Principiante", "Intermedio", "Avanzado"],
-      },
-      {
-        id: messages.length + 2,
-        type: "ai",
-        content: `¡Brutal! ${data.weight_kg}kg, ${data.height_cm}cm, nivel ${data.experience_level}. Ya tengo todo. Voy a crear tu plan personalizado. 🔥`,
       },
     ];
 
@@ -202,12 +209,14 @@ export default function Onboarding() {
       return questions[index];
     }
     
-    // All questions answered - show final message and save
-    if (index === questions.length) {
+    // index 4 -> after experience, show final message and save
+    if (index === 4) {
+      const displayLevel = experienceLabels[data.experience_level || ""] || data.experience_level;
       console.log("All questions answered, saving profile with data:", data);
+      
       // Save profile after showing the final message
       setTimeout(() => {
-        if (data.goal && data.experience_level && data.weight_kg) {
+        if (data.goal && data.experience_level && data.weight_kg && data.height_cm) {
           saveProfile(data);
         } else {
           console.error("Missing required data:", data);
@@ -218,7 +227,12 @@ export default function Onboarding() {
           });
         }
       }, 2000);
-      return questions[4]; // Show final message
+      
+      return {
+        id: messages.length + 2,
+        type: "ai",
+        content: `¡Brutal! ${data.weight_kg}kg, ${data.height_cm}cm, nivel ${displayLevel}. Ya tengo todo. Voy a crear tu plan personalizado. 🔥`,
+      };
     }
     
     return null;
