@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -13,8 +13,6 @@ import {
   RefreshCw,
   Minus,
   Plus,
-  Volume2,
-  VolumeX,
   Dumbbell,
 } from "lucide-react";
 import { MobileFrame, MobileContent } from "@/components/layout/MobileFrame";
@@ -51,36 +49,6 @@ interface WorkoutSession {
   started_at: string;
 }
 
-// Coach motivation phrases
-const COACH_PHRASES = {
-  setComplete: [
-    "Bien. Siguiente.",
-    "Eso es. Vamos.",
-    "Dale. Otro más.",
-    "Bien hecho.",
-  ],
-  exerciseComplete: [
-    "Ejercicio completado. Al siguiente.",
-    "Hecho. Ahora a por el siguiente.",
-    "Bien. Cambiamos.",
-  ],
-  restStart: [
-    "Descansa. Lo necesitas.",
-    "Recupera. Vuelves fuerte.",
-    "Respira. Siguiente set en nada.",
-  ],
-  restEnd: [
-    "Vamos. A darle.",
-    "Se acabó el descanso. Dale.",
-    "Arriba. Siguiente set.",
-  ],
-  midWorkout: [
-    "Vas bien. Sigue así.",
-    "Mitad del entreno. No aflojes.",
-    "Buen ritmo. Mantén.",
-  ],
-};
-
 export default function Training() {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -95,12 +63,8 @@ export default function Training() {
   const [completedExercises, setCompletedExercises] = useState<Set<number>>(new Set());
   const [generatingNew, setGeneratingNew] = useState(false);
   const [currentWeight, setCurrentWeight] = useState<string>("0");
-  const [coachEnabled, setCoachEnabled] = useState(true);
-  const [isCoachSpeaking, setIsCoachSpeaking] = useState(false);
   const [showRestChoice, setShowRestChoice] = useState(false);
   const [pendingRestSeconds, setPendingRestSeconds] = useState(0);
-  const lastSpokenRef = useRef<string>("");
-  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   // Fetch active routine
   useEffect(() => {
@@ -163,54 +127,6 @@ export default function Training() {
     }
   }, [currentExerciseIndex, routine]);
 
-  // Coach speak function
-  const speakCoach = useCallback(async (text: string) => {
-    if (!coachEnabled || isCoachSpeaking) return;
-    if (lastSpokenRef.current === text) return;
-    
-    lastSpokenRef.current = text;
-    setIsCoachSpeaking(true);
-    
-    try {
-      const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/tts-coach`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-            Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
-          },
-          body: JSON.stringify({ text }),
-        }
-      );
-
-      if (!response.ok) return;
-
-      const audioBlob = await response.blob();
-      const audioUrl = URL.createObjectURL(audioBlob);
-      
-      const audio = new Audio(audioUrl);
-      audioRef.current = audio;
-      
-      audio.onended = () => {
-        setIsCoachSpeaking(false);
-        URL.revokeObjectURL(audioUrl);
-      };
-      
-      audio.onerror = () => setIsCoachSpeaking(false);
-      await audio.play();
-    } catch {
-      setIsCoachSpeaking(false);
-    }
-  }, [coachEnabled, isCoachSpeaking]);
-
-  // Random phrase picker
-  const getRandomPhrase = (category: keyof typeof COACH_PHRASES) => {
-    const phrases = COACH_PHRASES[category];
-    return phrases[Math.floor(Math.random() * phrases.length)];
-  };
-
   // Main timer
   useEffect(() => {
     let interval: NodeJS.Timeout;
@@ -222,7 +138,7 @@ export default function Training() {
     return () => clearInterval(interval);
   }, [isRunning, restTimer]);
 
-  // Rest timer with coach
+  // Rest timer
   useEffect(() => {
     let interval: NodeJS.Timeout;
     if (restTimer !== null && restTimer > 0) {
@@ -230,18 +146,10 @@ export default function Training() {
         setRestTimer((prev) => (prev !== null ? prev - 1 : null));
       }, 1000);
     } else if (restTimer === 0) {
-      speakCoach(getRandomPhrase("restEnd"));
       setRestTimer(null);
     }
     return () => clearInterval(interval);
-  }, [restTimer, speakCoach]);
-
-  // Mid-workout motivation
-  useEffect(() => {
-    if (totalExercises > 0 && currentExerciseIndex === Math.floor(totalExercises / 2) && currentSet === 1) {
-      speakCoach(getRandomPhrase("midWorkout"));
-    }
-  }, [currentExerciseIndex, currentSet, speakCoach]);
+  }, [restTimer]);
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -270,14 +178,12 @@ export default function Training() {
     });
 
     if (currentSet < currentExercise.sets) {
-      speakCoach(getRandomPhrase("setComplete"));
       setCurrentSet(currentSet + 1);
       // Show choice modal instead of auto-starting rest
       setPendingRestSeconds(currentExercise.rest_seconds);
       setShowRestChoice(true);
     } else {
       // Exercise completed
-      speakCoach(getRandomPhrase("exerciseComplete"));
       setCompletedExercises(prev => new Set(prev).add(currentExerciseIndex));
       
       if (currentExerciseIndex < totalExercises - 1) {
@@ -295,7 +201,6 @@ export default function Training() {
 
   const handleChooseRest = () => {
     setShowRestChoice(false);
-    speakCoach(getRandomPhrase("restStart"));
     setRestTimer(pendingRestSeconds);
   };
 
@@ -464,28 +369,6 @@ export default function Training() {
           </div>
           <div className="flex items-center gap-2">
             <button
-              onClick={() => {
-                const newState = !coachEnabled;
-                setCoachEnabled(newState);
-                if (!newState && audioRef.current) {
-                  audioRef.current.pause();
-                  audioRef.current = null;
-                  setIsCoachSpeaking(false);
-                }
-                toast(newState ? "Coach activado" : "Coach silenciado", {
-                  icon: newState ? "🎙️" : "🔇",
-                  duration: 1500,
-                });
-              }}
-              className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${
-                coachEnabled 
-                  ? "bg-gradient-to-br from-primary/20 to-accent/10 text-primary shadow-glow-sm" 
-                  : "bg-muted/50 text-muted-foreground"
-              }`}
-            >
-              {coachEnabled ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
-            </button>
-            <button
               onClick={handleFinishWorkout}
               className="px-3 py-1 bg-destructive/10 text-destructive border border-destructive/20 rounded-lg text-sm font-bold"
             >
@@ -501,15 +384,6 @@ export default function Training() {
             animate={{ width: `${progress}%` }}
           />
         </div>
-        {isCoachSpeaking && (
-          <motion.p 
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="text-xs text-secondary text-center mt-2 animate-pulse"
-          >
-            🎙️ Coach hablando...
-          </motion.p>
-        )}
       </header>
 
       <MobileContent className="p-4 pb-32 space-y-4">
