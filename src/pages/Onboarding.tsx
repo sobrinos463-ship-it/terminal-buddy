@@ -165,58 +165,70 @@ export default function Onboarding() {
     }, 1200);
   };
 
-  const getNextQuestion = (index: number, data: OnboardingData): Message | null => {
-    // Map experience level to Spanish for display
+  const getNextQuestion = (step: number, data: OnboardingData): Message | null => {
+    // step is the NEXT question to ask after we processed an answer.
+    // Flow:
+    // 0: asked weight (already in initialMessages)
+    // 1: ask height
+    // 2: ask goal
+    // 3: ask training days
+    // 4: ask experience
+    // 5: final + save
+
     const experienceLabels: Record<string, string> = {
       beginner: "Principiante",
       intermediate: "Intermedio",
       advanced: "Avanzado",
+      elite: "Elite",
     };
-    
-    const questions: Message[] = [
-      // index 0 -> after weight, ask height
-      {
+
+    if (step === 1) {
+      return {
         id: messages.length + 2,
         type: "ai",
         content: "Bien. ¿Cuánto mides? (en cm)",
         inputType: "height",
-      },
-      // index 1 -> after height, ask goal
-      {
+      };
+    }
+
+    if (step === 2) {
+      return {
         id: messages.length + 2,
         type: "ai",
         content: "Perfecto. ¿Cuál es tu objetivo principal?",
         options: ["Perder grasa", "Ganar músculo", "Ganar fuerza", "Mejorar resistencia"],
-      },
-      // index 2 -> after goal, ask training days
-      {
+      };
+    }
+
+    if (step === 3) {
+      return {
         id: messages.length + 2,
         type: "ai",
         content: "¿Cuántos días a la semana puedes entrenar?",
         options: ["2-3 días", "4-5 días", "6+ días"],
-      },
-      // index 3 -> after training days, ask experience
-      {
+      };
+    }
+
+    if (step === 4) {
+      return {
         id: messages.length + 2,
         type: "ai",
         content: "¿Cuál es tu nivel de experiencia en el gimnasio?",
         options: ["Principiante", "Intermedio", "Avanzado"],
-      },
-    ];
-
-    // If we still have questions to show
-    if (index < questions.length) {
-      return questions[index];
+      };
     }
-    
-    // index 4 -> after experience, show final message and save
-    if (index === 4) {
-      const displayLevel = experienceLabels[data.experience_level || ""] || data.experience_level;
-      console.log("All questions answered, saving profile with data:", data);
-      
+
+    if (step === 5) {
+      const displayLevel = experienceLabels[data.experience_level || ""] || "(sin nivel)";
+
       // Save profile after showing the final message
       setTimeout(() => {
-        if (data.goal && data.experience_level && data.weight_kg && data.height_cm) {
+        if (
+          data.goal &&
+          data.experience_level &&
+          typeof data.weight_kg === "number" &&
+          typeof data.height_cm === "number"
+        ) {
           saveProfile(data);
         } else {
           console.error("Missing required data:", data);
@@ -227,14 +239,14 @@ export default function Onboarding() {
           });
         }
       }, 2000);
-      
+
       return {
         id: messages.length + 2,
         type: "ai",
         content: `¡Brutal! ${data.weight_kg}kg, ${data.height_cm}cm, nivel ${displayLevel}. Ya tengo todo. Voy a crear tu plan personalizado. 🔥`,
       };
     }
-    
+
     return null;
   };
 
@@ -244,12 +256,16 @@ export default function Onboarding() {
     // Validate numeric input for weight/height
     if (currentInputType === "weight" || currentInputType === "height") {
       const num = parseInt(inputValue);
-      if (isNaN(num) || num < 30 || num > 300) {
+      const isWeight = currentInputType === "weight";
+      const min = isWeight ? 30 : 100;
+      const max = isWeight ? 300 : 250;
+
+      if (isNaN(num) || num < min || num > max) {
         toast({
           variant: "destructive",
           title: "Valor inválido",
-          description: currentInputType === "weight" 
-            ? "Introduce un peso válido (30-300 kg)" 
+          description: isWeight
+            ? "Introduce un peso válido (30-300 kg)"
             : "Introduce una altura válida (100-250 cm)",
         });
         return;
