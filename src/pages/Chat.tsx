@@ -1,10 +1,9 @@
 import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { ChevronLeft, Send, Mic, MicOff, Sparkles, Volume2, VolumeX, Loader2 } from "lucide-react";
+import { ChevronLeft, Send, Sparkles, Loader2 } from "lucide-react";
 import { MobileFrame, MobileContent } from "@/components/layout/MobileFrame";
 import { BottomNav } from "@/components/layout/BottomNav";
-import { useVoiceChat } from "@/hooks/useVoiceChat";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
@@ -54,18 +53,8 @@ export default function Chat() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [autoPlayVoice, setAutoPlayVoice] = useState(true);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const { 
-    isRecording, 
-    isTranscribing, 
-    startRecording, 
-    stopRecording, 
-    playAudio, 
-    isPlayingAudio,
-    stopAudio 
-  } = useVoiceChat();
 
   // Load user context on mount
   useEffect(() => {
@@ -250,11 +239,6 @@ export default function Chat() {
         }
       }
 
-      // Auto-play voice response
-      if (autoPlayVoice && assistantContent.length > 0) {
-        playAudio(assistantContent);
-      }
-
     } catch (error) {
       console.error("Chat error:", error);
       toast({
@@ -274,31 +258,6 @@ export default function Chat() {
     if (!messageText.trim() || isLoading) return;
     setInputValue("");
     streamChat(messageText);
-  };
-
-  const handleVoiceButton = async () => {
-    if (isRecording) {
-      const transcribedText = await stopRecording();
-      if (transcribedText && transcribedText.trim()) {
-        streamChat(transcribedText);
-      } else if (transcribedText === null) {
-        toast({
-          variant: "destructive",
-          title: "Error de voz",
-          description: "No se pudo transcribir el audio. Intenta de nuevo.",
-        });
-      }
-    } else {
-      try {
-        await startRecording();
-      } catch {
-        toast({
-          variant: "destructive",
-          title: "Micrófono no disponible",
-          description: "Permite el acceso al micrófono para usar voz.",
-        });
-      }
-    }
   };
 
   return (
@@ -322,22 +281,11 @@ export default function Chat() {
             <div>
               <h1 className="font-bold">Coach IA</h1>
               <p className="text-xs text-primary">
-                {isLoading ? "Escribiendo..." : isPlayingAudio ? "Hablando..." : "En línea"}
+                {isLoading ? "Escribiendo..." : "En línea"}
               </p>
             </div>
           </div>
         </div>
-        <button 
-          onClick={() => {
-            setAutoPlayVoice(!autoPlayVoice);
-            if (isPlayingAudio) stopAudio();
-          }}
-          className={`w-10 h-10 flex items-center justify-center rounded-full transition-colors ${
-            autoPlayVoice ? "bg-secondary/20 text-secondary" : "bg-muted text-muted-foreground"
-          }`}
-        >
-          {autoPlayVoice ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
-        </button>
       </header>
 
       {/* Chat Area */}
@@ -423,32 +371,13 @@ export default function Chat() {
       {/* Input Area */}
       <div className="absolute bottom-16 left-0 right-0 glass-panel border-t border-white/10 p-4">
         <div className="flex gap-3">
-          <button 
-            onClick={handleVoiceButton}
-            disabled={isTranscribing || isLoading}
-            className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all ${
-              isRecording 
-                ? "bg-red-500 text-white animate-pulse" 
-                : isTranscribing
-                  ? "bg-muted text-muted-foreground"
-                  : "bg-muted text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            {isTranscribing ? (
-              <Loader2 className="w-5 h-5 animate-spin" />
-            ) : isRecording ? (
-              <MicOff className="w-5 h-5" />
-            ) : (
-              <Mic className="w-5 h-5" />
-            )}
-          </button>
           <input
             type="text"
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleSend()}
-            placeholder={isRecording ? "Escuchando..." : "Pregunta a tu Coach..."}
-            disabled={isLoading || isRecording}
+            placeholder="Pregunta a tu Coach..."
+            disabled={isLoading}
             className="flex-1 bg-muted/50 border border-white/10 rounded-xl px-4 py-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-secondary/50 disabled:opacity-50"
           />
           <button
@@ -463,16 +392,6 @@ export default function Chat() {
             )}
           </button>
         </div>
-        
-        {isRecording && (
-          <motion.div 
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: "auto" }}
-            className="mt-2 text-center"
-          >
-            <p className="text-xs text-red-400 animate-pulse">🎙️ Grabando... Toca el micrófono para enviar</p>
-          </motion.div>
-        )}
       </div>
 
       <BottomNav />
