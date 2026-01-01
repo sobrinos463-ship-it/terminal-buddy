@@ -153,8 +153,11 @@ export default function Training() {
   // Update current weight when exercise changes
   useEffect(() => {
     if (routine?.routine_exercises[currentExerciseIndex]) {
-      const weight = routine.routine_exercises[currentExerciseIndex].weight_suggestion || "0";
-      setCurrentWeight(weight.replace(/[^0-9.]/g, "") || "0");
+      const weightSuggestion = routine.routine_exercises[currentExerciseIndex].weight_suggestion || "0";
+      // Parse weight correctly - take first number from range like "50-60kg" or "12-16kg (cada mancuerna)"
+      const match = weightSuggestion.match(/(\d+)/);
+      const parsedWeight = match ? match[1] : "0";
+      setCurrentWeight(parsedWeight);
     }
   }, [currentExerciseIndex, routine]);
 
