@@ -84,13 +84,20 @@ serve(async (req) => {
       "mantener forma física actual": "10-12 reps (peso moderado)"
     };
 
-    // Weight multipliers based on experience level (as percentage of body weight for compound movements)
-    const weightGuide: Record<string, string> = {
-      "principiante": `Pesos BAJOS para aprender técnica. Press banca: 15-25kg, Sentadilla: 15-30kg, Peso muerto: 20-30kg, Mancuernas: 4-8kg`,
-      "intermedio": `Pesos MODERADOS. Press banca: 40-60kg, Sentadilla: 50-80kg, Peso muerto: 60-90kg, Mancuernas: 10-16kg`,
-      "avanzado": `Pesos ALTOS. Press banca: 70-100kg, Sentadilla: 90-120kg, Peso muerto: 100-140kg, Mancuernas: 16-24kg`,
-      "elite": `Pesos MUY ALTOS. Press banca: 100-140kg, Sentadilla: 140-180kg, Peso muerto: 160-200kg, Mancuernas: 24-36kg`
+    // Calculate realistic weights based on user's body weight and level
+    const levelMultiplier: Record<string, number> = {
+      "principiante": 0.4,
+      "intermedio": 0.75,
+      "avanzado": 1.0,
+      "elite": 1.25
     };
+
+    const mult = levelMultiplier[experienceLevel] || 0.75;
+    const benchPress = Math.round(userWeight * mult);
+    const squat = Math.round(userWeight * mult * 1.2);
+    const deadlift = Math.round(userWeight * mult * 1.4);
+    const shoulderPress = Math.round(userWeight * mult * 0.5);
+    const dumbbells = Math.round(userWeight * mult * 0.15);
 
     const systemPrompt = `Eres un entrenador personal experto. Genera rutinas de entrenamiento personalizadas en español.
 
@@ -99,37 +106,39 @@ DATOS DEL USUARIO:
 - Nivel: ${experienceLevel}
 - Peso corporal: ${userWeight}kg
 
-GUÍA DE PESOS SEGÚN NIVEL (${experienceLevel}):
-${weightGuide[experienceLevel] || weightGuide["intermedio"]}
+PESOS CALCULADOS PARA ESTE USUARIO (${experienceLevel}, ${userWeight}kg):
+- Press de banca: ${benchPress}kg (${mult * 100}% del peso corporal)
+- Sentadilla: ${squat}kg
+- Peso muerto: ${deadlift}kg
+- Press militar: ${shoulderPress}kg
+- Mancuernas (curl, laterales): ${dumbbells}kg cada una
 
-GUÍA DE REPETICIONES SEGÚN OBJETIVO (${goal}):
+GUÍA DE REPETICIONES (${goal}):
 ${repRanges[goal] || repRanges["ganar masa muscular"]}
 
 REGLAS CRÍTICAS:
-1. Los pesos DEBEN ser REALISTAS para el nivel del usuario
-2. NUNCA sugieras más de 100kg para principiantes
-3. El peso sugerido debe ser un rango razonable (ej: "20-30kg", "15kg", "Sin peso")
-4. Para ejercicios con peso corporal: "Sin peso" o "Peso corporal"
-5. Las reps deben coincidir con el objetivo del usuario`;
+1. USA LOS PESOS CALCULADOS ARRIBA como referencia
+2. El peso sugerido debe ser un número exacto o rango pequeño (ej: "60kg", "60-70kg")
+3. Para ejercicios con peso corporal: "Sin peso"
+4. Las reps deben coincidir con el objetivo del usuario`;
 
     const userPrompt = `Genera una rutina de entrenamiento para hoy.
 
-IMPORTANTE: 
-- El usuario pesa ${userWeight}kg y es nivel ${experienceLevel}
-- Objetivo: ${goal}
-- Reps recomendadas: ${repRanges[goal] || "8-12"}
+USUARIO: ${userWeight}kg, nivel ${experienceLevel}, objetivo ${goal}
+
+PESOS DE REFERENCIA (calculados para este usuario):
+- Press banca: ${benchPress}kg
+- Sentadilla: ${squat}kg  
+- Peso muerto: ${deadlift}kg
+- Press hombro: ${shoulderPress}kg
+- Mancuernas: ${dumbbells}kg
 
 La rutina debe incluir:
 - Nombre descriptivo en español
 - Descripción motivadora breve
 - Grupos musculares objetivo
 - Duración estimada (30-60 min)
-- 4-6 ejercicios con pesos REALISTAS para un ${experienceLevel}
-
-EJEMPLOS DE PESO CORRECTO para ${experienceLevel}:
-- Press de banca: ${experienceLevel === "principiante" ? "20-30kg" : experienceLevel === "intermedio" ? "50-70kg" : "80-100kg"}
-- Sentadilla: ${experienceLevel === "principiante" ? "20-40kg" : experienceLevel === "intermedio" ? "60-90kg" : "100-130kg"}
-- Curl de bíceps: ${experienceLevel === "principiante" ? "6-10kg" : experienceLevel === "intermedio" ? "12-18kg" : "18-25kg"}`;
+- 4-6 ejercicios con pesos basados en los cálculos de arriba`;
 
     console.log("Sending request to AI gateway...");
 
