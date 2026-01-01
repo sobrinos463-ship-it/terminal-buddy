@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Bell, Play, Flame, Trophy, TrendingUp, Calendar, Sparkles, Loader2, RefreshCw, Zap, Target } from "lucide-react";
+import { Bell, Play, Flame, Trophy, TrendingUp, Calendar, Sparkles, Loader2, RefreshCw, Zap, Target, CheckCircle, Clock, Dumbbell } from "lucide-react";
 import { MobileFrame, MobileContent } from "@/components/layout/MobileFrame";
 import { BottomNav } from "@/components/layout/BottomNav";
 import { GlassCard } from "@/components/ui/GlassCard";
@@ -31,11 +31,21 @@ interface WeeklySession {
   duration_seconds: number;
 }
 
+interface TodaySession {
+  id: string;
+  completed_at: string;
+  duration_seconds: number | null;
+  xp_earned: number;
+  routine_id: string | null;
+}
+
 const quickActions = [
   { icon: Play, label: "Entrenar", gradient: "from-primary to-accent", path: "/training" },
   { icon: Target, label: "Mi Plan", gradient: "from-secondary to-ember-500", path: "/chat" },
   { icon: TrendingUp, label: "Progreso", gradient: "from-amber-500 to-fire-500", path: "/summary" },
 ];
+
+const WORKOUT_COMPLETED_HOURS = 4; // Show completed state for 4 hours after workout
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -47,6 +57,8 @@ export default function Dashboard() {
   const [lastSessionDays, setLastSessionDays] = useState<number | null>(null);
   const [weekSessions, setWeekSessions] = useState<WeeklySession[]>([]);
   const [totalSessions, setTotalSessions] = useState(0);
+  const [todayCompletedSession, setTodayCompletedSession] = useState<TodaySession | null>(null);
+  const [exercisesCompleted, setExercisesCompleted] = useState(0);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -79,6 +91,40 @@ export default function Dashboard() {
         console.error("Error fetching routine:", routineError);
       } else if (routines && routines.length > 0) {
         setRoutine(routines[0]);
+      }
+
+      // Check for recently completed session (within last X hours)
+      const hoursAgo = new Date();
+      hoursAgo.setHours(hoursAgo.getHours() - WORKOUT_COMPLETED_HOURS);
+      
+      const { data: recentSession } = await supabase
+        .from("workout_sessions")
+        .select("*")
+        .eq("user_id", user.id)
+        .not("completed_at", "is", null)
+        .gte("completed_at", hoursAgo.toISOString())
+        .order("completed_at", { ascending: false })
+        .limit(1);
+
+      if (recentSession && recentSession.length > 0) {
+        setTodayCompletedSession(recentSession[0]);
+        
+        // Get exercises count for this session
+        const { count } = await supabase
+          .from("completed_sets")
+          .select("exercise_name", { count: "exact", head: true })
+          .eq("session_id", recentSession[0].id);
+        
+        // Get unique exercises
+        const { data: setsData } = await supabase
+          .from("completed_sets")
+          .select("exercise_name")
+          .eq("session_id", recentSession[0].id);
+        
+        if (setsData) {
+          const uniqueExercises = new Set(setsData.map(s => s.exercise_name));
+          setExercisesCompleted(uniqueExercises.size);
+        }
       }
 
       const weekAgo = new Date();
@@ -191,6 +237,173 @@ export default function Dashboard() {
     );
   }
 
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, "0")}`;
+  };
+
+  const dismissCompletedView = () => {
+    setTodayCompletedSession(null);
+  };
+
+  // Show "Workout Completed" view if recently finished
+  if (todayCompletedSession) {
+    return (
+      <MobileFrame>
+        <header className="glass-panel sticky top-0 z-20 px-5 py-4 flex justify-between items-center border-b border-white/5">
+          <div className="flex flex-col">
+            <span className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+              ¡Bien hecho!
+            </span>
+            <h1 className="text-xl font-display font-bold gradient-text-fire">{firstName}</h1>
+          </div>
+          <button
+            onClick={dismissCompletedView}
+            className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            Ver dashboard
+          </button>
+        </header>
+
+        <MobileContent className="px-5 py-6 pb-28 space-y-6">
+          {/* Celebration Header */}
+          <motion.div
+            initial={{ opacity: 0, scale: 0.8 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="text-center space-y-4"
+          >
+            <div className="relative inline-block">
+              <div className="w-24 h-24 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-glow-lg animate-pulse-ai">
+                <CheckCircle className="w-12 h-12 text-primary-foreground" />
+              </div>
+              <div className="absolute -top-2 -right-2 w-8 h-8 rounded-full bg-amber-500 flex items-center justify-center shadow-lg">
+                <Flame className="w-4 h-4 text-white animate-fire-flicker" />
+              </div>
+            </div>
+            <div>
+              <h2 className="text-2xl font-display font-bold gradient-text-fire">
+                ¡Entreno Completado!
+              </h2>
+              <p className="text-muted-foreground text-sm mt-1">
+                Has dado un paso más hacia tu mejor versión
+              </p>
+            </div>
+          </motion.div>
+
+          {/* Stats Cards */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.2 }}
+            className="grid grid-cols-3 gap-3"
+          >
+            <div className="stat-card">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary/20 to-accent/10 flex items-center justify-center mx-auto mb-2">
+                <Flame className="w-5 h-5 text-primary animate-fire-flicker" />
+              </div>
+              <p className="text-2xl font-display font-bold">{profile?.streak_days || 0}</p>
+              <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Racha</p>
+            </div>
+            <div className="stat-card">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500/20 to-fire-500/10 flex items-center justify-center mx-auto mb-2">
+                <Zap className="w-5 h-5 text-amber-400" />
+              </div>
+              <p className="text-2xl font-display font-bold">+{todayCompletedSession.xp_earned}</p>
+              <p className="text-[10px] text-muted-foreground uppercase tracking-wider">XP Hoy</p>
+            </div>
+            <div className="stat-card">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-secondary/20 to-ember-500/10 flex items-center justify-center mx-auto mb-2">
+                <Dumbbell className="w-5 h-5 text-secondary" />
+              </div>
+              <p className="text-2xl font-display font-bold">{exercisesCompleted}</p>
+              <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Ejercicios</p>
+            </div>
+          </motion.div>
+
+          {/* Session Summary Card */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.3 }}
+          >
+            <GlassCard className="card-glow border-primary/20">
+              <div className="flex items-center gap-4 mb-4">
+                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-secondary to-ember-500 flex items-center justify-center">
+                  <Clock className="w-6 h-6 text-secondary-foreground" />
+                </div>
+                <div>
+                  <p className="font-display font-bold text-lg">
+                    {formatTime(todayCompletedSession.duration_seconds || 0)}
+                  </p>
+                  <p className="text-xs text-muted-foreground">Duración total</p>
+                </div>
+              </div>
+              <div className="space-y-2 pt-3 border-t border-border/50">
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-muted-foreground">XP Base</span>
+                  <span className="font-semibold">+50</span>
+                </div>
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-muted-foreground">Por ejercicios ({exercisesCompleted})</span>
+                  <span className="font-semibold text-primary">+{exercisesCompleted * 10}</span>
+                </div>
+              </div>
+            </GlassCard>
+          </motion.div>
+
+          {/* AI Coach Message */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.4 }}
+          >
+            <GlassCard className="relative overflow-hidden">
+              <div className="absolute -top-10 -right-10 w-32 h-32 bg-gradient-to-br from-primary/15 to-transparent rounded-full blur-2xl" />
+              <div className="flex items-start gap-4 relative z-10">
+                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-glow flex-shrink-0">
+                  <Sparkles className="w-6 h-6 text-primary-foreground" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[10px] text-primary font-semibold uppercase tracking-widest mb-1">
+                    Coach IA
+                  </p>
+                  <p className="text-sm text-foreground/90 leading-relaxed">
+                    ¡Excelente trabajo, {firstName}! Ahora toca recuperarse. 
+                    Hidrátate bien y descansa los músculos trabajados al menos 48h.
+                  </p>
+                </div>
+              </div>
+            </GlassCard>
+          </motion.div>
+
+          {/* Action Button */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.5 }}
+          >
+            <button
+              onClick={() => navigate("/summary", { 
+                state: { 
+                  duration: todayCompletedSession.duration_seconds,
+                  xpEarned: todayCompletedSession.xp_earned,
+                  exercisesCompleted: exercisesCompleted
+                }
+              })}
+              className="w-full btn-primary-glow py-4 rounded-xl flex items-center justify-center gap-2"
+            >
+              <TrendingUp className="w-5 h-5" />
+              <span className="font-semibold">Ver Análisis Completo</span>
+            </button>
+          </motion.div>
+        </MobileContent>
+
+        <BottomNav />
+      </MobileFrame>
+    );
+  }
+
   return (
     <MobileFrame>
       {/* Header */}
@@ -228,35 +441,6 @@ export default function Dashboard() {
       </header>
 
       <MobileContent className="px-5 py-6 pb-28 space-y-6">
-        {/* Stats Row */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="grid grid-cols-3 gap-3"
-        >
-          <div className="stat-card">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary/20 to-accent/10 flex items-center justify-center mx-auto mb-2">
-              <Flame className="w-5 h-5 text-primary animate-fire-flicker" />
-            </div>
-            <p className="text-2xl font-display font-bold">{profile?.streak_days || 0}</p>
-            <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Racha</p>
-          </div>
-          <div className="stat-card">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500/20 to-fire-500/10 flex items-center justify-center mx-auto mb-2">
-              <Zap className="w-5 h-5 text-amber-400" />
-            </div>
-            <p className="text-2xl font-display font-bold">{profile?.total_xp || 0}</p>
-            <p className="text-[10px] text-muted-foreground uppercase tracking-wider">XP</p>
-          </div>
-          <div className="stat-card">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-secondary/20 to-ember-500/10 flex items-center justify-center mx-auto mb-2">
-              <Trophy className="w-5 h-5 text-secondary" />
-            </div>
-            <p className="text-2xl font-display font-bold">{totalSessions}</p>
-            <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Entrenos</p>
-          </div>
-        </motion.div>
-
         {/* AI Insight Card */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
