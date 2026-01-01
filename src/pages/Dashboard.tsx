@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Bell, Play, Flame, Trophy, TrendingUp, Calendar, Sparkles, Loader2, RefreshCw, Zap, Target, CheckCircle, Clock, Dumbbell } from "lucide-react";
+import { Bell, Play, Flame, Trophy, TrendingUp, Calendar, Sparkles, Loader2, RefreshCw, Zap, Target, CheckCircle, Clock, Dumbbell, Activity } from "lucide-react";
 import { MobileFrame, MobileContent } from "@/components/layout/MobileFrame";
 import { BottomNav } from "@/components/layout/BottomNav";
 import { GlassCard } from "@/components/ui/GlassCard";
@@ -40,8 +40,8 @@ interface TodaySession {
 }
 
 const quickActions = [
-  { icon: Play, label: "Entrenar", gradient: "from-primary to-accent", path: "/training" },
-  { icon: Target, label: "Mi Plan", gradient: "from-secondary to-ember-500", path: "/chat" },
+  { icon: Play, label: "Rutina", gradient: "from-primary to-accent", path: "/training" },
+  { icon: Activity, label: "Libre", gradient: "from-emerald-500 to-teal-500", path: "/training?mode=free" },
   { icon: TrendingUp, label: "Progreso", gradient: "from-amber-500 to-fire-500", path: "/summary" },
 ];
 
