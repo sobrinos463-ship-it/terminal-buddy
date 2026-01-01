@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   ChevronLeft,
@@ -14,6 +14,8 @@ import {
   Minus,
   Plus,
   Dumbbell,
+  Activity,
+  Save,
 } from "lucide-react";
 import { MobileFrame, MobileContent } from "@/components/layout/MobileFrame";
 import { GlassCard } from "@/components/ui/GlassCard";
@@ -51,6 +53,8 @@ interface WorkoutSession {
 
 export default function Training() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const isFreeMode = searchParams.get('mode') === 'free';
   const { user } = useAuth();
   const [routine, setRoutine] = useState<Routine | null>(null);
   const [session, setSession] = useState<WorkoutSession | null>(null);
@@ -66,22 +70,52 @@ export default function Training() {
   const [showRestChoice, setShowRestChoice] = useState(false);
   const [pendingRestSeconds, setPendingRestSeconds] = useState(0);
   const [alreadyTrainedToday, setAlreadyTrainedToday] = useState(false);
+  
+  // Free training state
+  const [freeExerciseName, setFreeExerciseName] = useState("");
+  const [freeReps, setFreeReps] = useState("12");
+  const [freeSets, setFreeSets] = useState(1);
+  const [freeExercises, setFreeExercises] = useState<{name: string; sets: number; weight: string; reps: string}[]>([]);
 
   // Fetch active routine
   useEffect(() => {
     const fetchRoutine = async () => {
       if (!user) return;
 
+      // If free mode, skip routine check and create session directly
+      if (isFreeMode) {
+        try {
+          const { data: sessionData, error: sessionError } = await supabase
+            .from('workout_sessions')
+            .insert({
+              user_id: user.id,
+              routine_id: null // Free training has no routine
+            })
+            .select()
+            .single();
+
+          if (sessionError) throw sessionError;
+          setSession(sessionData);
+        } catch (err) {
+          console.error('Error creating free session:', err);
+          toast.error('Error al iniciar entrenamiento libre');
+        } finally {
+          setLoading(false);
+        }
+        return;
+      }
+
       try {
-        // Check if user already completed a workout today
+        // Check if user already completed a workout today (only for routine mode)
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         
         const { data: todaySession } = await supabase
           .from('workout_sessions')
-          .select('id, completed_at')
+          .select('id, completed_at, routine_id')
           .eq('user_id', user.id)
           .not('completed_at', 'is', null)
+          .not('routine_id', 'is', null) // Only count routine sessions
           .gte('completed_at', today.toISOString())
           .limit(1);
 
@@ -312,6 +346,211 @@ export default function Training() {
       <MobileFrame>
         <MobileContent className="flex items-center justify-center">
           <Loader2 className="w-8 h-8 animate-spin text-primary" />
+        </MobileContent>
+      </MobileFrame>
+    );
+  }
+
+  // Free training mode
+  if (isFreeMode) {
+    const handleAddFreeExercise = async () => {
+      if (!freeExerciseName.trim() || !session) return;
+
+      // Log the exercise
+      await supabase.from('completed_sets').insert({
+        session_id: session.id,
+        exercise_name: freeExerciseName,
+        set_number: freeSets,
+        weight_used: currentWeight + " kg",
+        reps_completed: parseInt(freeReps) || 0
+      });
+
+      setFreeExercises(prev => [...prev, {
+        name: freeExerciseName,
+        sets: freeSets,
+        weight: currentWeight,
+        reps: freeReps
+      }]);
+
+      // Reset for next exercise
+      setFreeExerciseName("");
+      setFreeSets(1);
+      toast.success("Ejercicio añadido");
+    };
+
+    const handleFinishFreeTraining = async () => {
+      if (!session || !user) return;
+
+      const xpEarned = 25 + freeExercises.length * 5; // Less XP for free training
+
+      await supabase
+        .from('workout_sessions')
+        .update({
+          completed_at: new Date().toISOString(),
+          duration_seconds: timer,
+          xp_earned: xpEarned
+        })
+        .eq('id', session.id);
+
+      // Update user XP
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('total_xp')
+        .eq('user_id', user.id)
+        .single();
+
+      if (profile) {
+        await supabase
+          .from('profiles')
+          .update({ total_xp: (profile.total_xp || 0) + xpEarned })
+          .eq('user_id', user.id);
+      }
+
+      toast.success("Entrenamiento libre guardado");
+      navigate('/dashboard');
+    };
+
+    return (
+      <MobileFrame>
+        <header className="glass-panel sticky top-0 z-20 p-4 border-b border-white/10">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center">
+              <button
+                onClick={() => navigate("/dashboard")}
+                className="p-2 hover:bg-muted rounded-full transition-colors"
+              >
+                <ChevronLeft className="w-6 h-6" />
+              </button>
+              <div className="ml-2">
+                <h1 className="text-lg font-bold">Entrenamiento Libre</h1>
+                <p className="text-xs text-muted-foreground">{formatTime(timer)}</p>
+              </div>
+            </div>
+            <button
+              onClick={handleFinishFreeTraining}
+              disabled={freeExercises.length === 0}
+              className="px-4 py-2 bg-primary text-primary-foreground rounded-xl text-sm font-semibold disabled:opacity-50 flex items-center gap-2"
+            >
+              <Save className="w-4 h-4" />
+              Guardar
+            </button>
+          </div>
+        </header>
+
+        <MobileContent className="p-4 pb-32 space-y-4">
+          {/* Add Exercise Form */}
+          <GlassCard className="border-emerald-500/30">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-500 flex items-center justify-center">
+                <Activity className="w-5 h-5 text-white" />
+              </div>
+              <div>
+                <p className="font-bold">Añadir Ejercicio</p>
+                <p className="text-xs text-muted-foreground">Registra lo que entrenas</p>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <input
+                type="text"
+                value={freeExerciseName}
+                onChange={(e) => setFreeExerciseName(e.target.value)}
+                placeholder="Nombre del ejercicio..."
+                className="w-full bg-muted/50 border border-white/10 rounded-xl px-4 py-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+              />
+              
+              <div className="grid grid-cols-3 gap-3">
+                <div className="bg-muted/50 rounded-xl p-3 text-center">
+                  <div className="flex items-center justify-center gap-2">
+                    <button 
+                      onClick={() => setFreeSets(Math.max(1, freeSets - 1))}
+                      className="w-7 h-7 rounded-lg bg-muted hover:bg-destructive/20 flex items-center justify-center"
+                    >
+                      <Minus className="w-4 h-4" />
+                    </button>
+                    <p className="text-xl font-bold min-w-[30px]">{freeSets}</p>
+                    <button 
+                      onClick={() => setFreeSets(freeSets + 1)}
+                      className="w-7 h-7 rounded-lg bg-muted hover:bg-primary/20 flex items-center justify-center"
+                    >
+                      <Plus className="w-4 h-4" />
+                    </button>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">Sets</p>
+                </div>
+
+                <div className="bg-muted/50 rounded-xl p-3 text-center">
+                  <input
+                    type="text"
+                    value={freeReps}
+                    onChange={(e) => setFreeReps(e.target.value)}
+                    className="w-full text-center text-xl font-bold bg-transparent focus:outline-none"
+                  />
+                  <p className="text-xs text-muted-foreground">Reps</p>
+                </div>
+
+                <div className="bg-muted/50 rounded-xl p-3 text-center">
+                  <div className="flex items-center justify-center gap-1">
+                    <button 
+                      onClick={() => adjustWeight(-2.5)}
+                      className="w-6 h-6 rounded-lg bg-muted hover:bg-destructive/20 flex items-center justify-center"
+                    >
+                      <Minus className="w-3 h-3" />
+                    </button>
+                    <p className="text-xl font-bold min-w-[40px]">{currentWeight}</p>
+                    <button 
+                      onClick={() => adjustWeight(2.5)}
+                      className="w-6 h-6 rounded-lg bg-muted hover:bg-primary/20 flex items-center justify-center"
+                    >
+                      <Plus className="w-3 h-3" />
+                    </button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">kg</p>
+                </div>
+              </div>
+
+              <button
+                onClick={handleAddFreeExercise}
+                disabled={!freeExerciseName.trim()}
+                className="w-full py-3 bg-gradient-to-r from-emerald-500 to-teal-500 text-white rounded-xl font-semibold disabled:opacity-50"
+              >
+                + Añadir Ejercicio
+              </button>
+            </div>
+          </GlassCard>
+
+          {/* Added Exercises List */}
+          {freeExercises.length > 0 && (
+            <div className="space-y-2">
+              <h3 className="font-bold text-sm text-muted-foreground uppercase tracking-wide">
+                Ejercicios ({freeExercises.length})
+              </h3>
+              {freeExercises.map((ex, idx) => (
+                <GlassCard key={idx} className="py-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-lg bg-emerald-500/20 flex items-center justify-center">
+                        <CheckCircle className="w-4 h-4 text-emerald-500" />
+                      </div>
+                      <div>
+                        <p className="font-semibold text-sm">{ex.name}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {ex.sets} sets × {ex.reps} reps @ {ex.weight}kg
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </GlassCard>
+              ))}
+            </div>
+          )}
+
+          {freeExercises.length === 0 && (
+            <div className="text-center py-8 text-muted-foreground">
+              <Dumbbell className="w-12 h-12 mx-auto mb-3 opacity-30" />
+              <p className="text-sm">Añade ejercicios para registrar tu entreno</p>
+            </div>
+          )}
         </MobileContent>
       </MobileFrame>
     );
