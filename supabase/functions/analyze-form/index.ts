@@ -54,11 +54,41 @@ serve(async (req) => {
 
     const { imageBase64, exerciseName } = await req.json();
     
-    if (!imageBase64) {
+    // Validate imageBase64
+    if (!imageBase64 || typeof imageBase64 !== 'string') {
       return new Response(
         JSON.stringify({ error: "No image provided" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
+    }
+
+    // Limit image size (5MB base64 ≈ 3.75MB binary)
+    if (imageBase64.length > 5 * 1024 * 1024) {
+      return new Response(
+        JSON.stringify({ error: "Image too large (max 5MB)" }),
+        { status: 413, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Validate base64 format (basic check)
+    if (!/^[A-Za-z0-9+/=]+$/.test(imageBase64.substring(0, 1000))) {
+      return new Response(
+        JSON.stringify({ error: "Invalid image format" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Validate and sanitize exercise name
+    let safeExerciseName = "ejercicio";
+    if (exerciseName && typeof exerciseName === 'string') {
+      if (exerciseName.length > 100) {
+        return new Response(
+          JSON.stringify({ error: "Exercise name too long" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+      // Sanitize: only allow alphanumeric, spaces, hyphens, and common Spanish characters
+      safeExerciseName = exerciseName.replace(/[^a-zA-Z0-9\s\-áéíóúñÁÉÍÓÚÑ]/g, '').trim() || "ejercicio";
     }
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
@@ -67,7 +97,7 @@ serve(async (req) => {
     }
 
     const systemPrompt = `Eres un entrenador personal experto en análisis biomecánico y técnica de ejercicios de gimnasio.
-Analiza la imagen del usuario realizando "${exerciseName || "ejercicio"}" y proporciona retroalimentación detallada.
+Analiza la imagen del usuario realizando "${safeExerciseName}" y proporciona retroalimentación detallada.
 
 DEBES responder SOLO con un JSON válido, sin texto adicional ni markdown. El formato exacto es:
 {
@@ -136,7 +166,7 @@ Sé directo y específico. Prioriza seguridad sobre todo.`;
               },
               {
                 type: "text",
-                text: `Analiza la forma de este ejercicio: ${exerciseName || "ejercicio de gimnasio"}. Responde SOLO con JSON válido.`
+                text: `Analiza la forma de este ejercicio: ${safeExerciseName}. Responde SOLO con JSON válido.`
               }
             ]
           }
